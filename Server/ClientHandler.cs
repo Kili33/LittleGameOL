@@ -56,7 +56,7 @@ namespace Server
                                 _isInRoom = true;
                                 var strMembers = string.Join(",", _room.Clients.Select(c => c._clientName));
                                 _server.BroadcastMessage($"{_clientName}加入房间！当前房间人员：{strMembers}", _room);
-                                SendMessage("输入‘exit’可退出当前房间！");
+                                SendMessage("输入‘exit’可退出当前房间！\n");
                                 switch (_room.RoomType)
                                 {
                                     case RoomType.大富翁:
@@ -65,11 +65,8 @@ namespace Server
                                     case RoomType.斗地主:
                                         if (_room.Clients.Count == 3)
                                         {
-                                            _isPlaying = true;
-                                            FightLandlord fightLandlord = new FightLandlord(_room, _server, _client, _clientName);
-                                            Thread clientThread = new Thread(fightLandlord.Start);
-                                            clientThread.Start();
-                                            _room.State = RoomState.Playing;
+                                            _server.BroadcastMessage($"人数已满，即将开始游戏！", _room);
+                                            FightLandlord fightLandlord = new FightLandlord();
                                         }
                                         break;
 
@@ -122,7 +119,7 @@ namespace Server
             }
             finally
             {
-                //Disconnect();
+                Disconnect();
             }
         }
 
@@ -165,6 +162,28 @@ namespace Server
         public void JionRoom()
         {
             SendMessage("请选择你要加入的房间\n======================================\n");
+            int i = 1;
+            foreach (var room in _server._rooms.Where(o => o.State == RoomState.Waiting))
+            {
+                SendMessage($"||       {i++}.{room.Name} 当前人数：{room.Clients.Count}      ||\n");
+            }
+            SendMessage("======================================\n");
+        }
+        public void ShowTable(Room room)
+        {
+            foreach (var player in room.Clients)
+            {
+                player.SendMessage("======================================\n");
+                player.SendMessage("||                                  ||\n");
+                player.SendMessage("||                                  ||\n");
+                player.SendMessage("||                                  ||\n");
+                player.SendMessage("======================================\n");
+            }
+
+        }
+        public void ShowCards(List<Card> cards)
+        {
+            SendMessage("======================================\n");
             int i = 1;
             foreach (var room in _server._rooms.Where(o => o.State == RoomState.Waiting))
             {

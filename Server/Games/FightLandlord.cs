@@ -1,88 +1,112 @@
-﻿using System.Net.Sockets;
-using System.Text;
-
-namespace Server.Games
+﻿namespace Server.Games
 {
     public class FightLandlord
     {
-        private readonly TcpClient _client;
-        private readonly GameServer _server;
-        private readonly Room _room;
-        private NetworkStream _stream;
-        private string _clientName;
+        public List<Card> AllCards { get; set; } = new List<Card>();
 
-        public FightLandlord(Room room, GameServer server, TcpClient client, string clientName)
+        public FightLandlord()
         {
-            _room = room;
-            _server = server;
-            _client = client;
-            _clientName = clientName;
+            for (int i = 0; i < 13; i++)
+            {
+                AllCards.Add(new Card() { Value = (CardValue)i, Suit = Suit.Spade });
+                AllCards.Add(new Card() { Value = (CardValue)i, Suit = Suit.Heart });
+                AllCards.Add(new Card() { Value = (CardValue)i, Suit = Suit.Club });
+                AllCards.Add(new Card() { Value = (CardValue)i, Suit = Suit.Diamond });
+            }
+            AllCards.Add(new Card() { Value = CardValue.SmallJoker, Suit = Suit.Spade });
+            AllCards.Add(new Card() { Value = CardValue.BigJoker, Suit = Suit.Spade });
         }
 
-        public void Start()
+        public void Shuffle()
         {
-            int readyPlayers = 0;
-            _server.BroadcastMessage($"当前人数已满，请准备：y/n", _room);
-            while (readyPlayers != 3)
+            Random random = new Random();
+            for (int i = 0; i < AllCards.Count; i++)
             {
-                try
-                {
-                    _stream = _client.GetStream();
-                    byte[] buffer = new byte[1024];
-                    int bytesRead;
-                    bytesRead = _stream.Read(buffer, 0, buffer.Length);
-                    if (Encoding.UTF8.GetString(buffer, 0, bytesRead).ToLower() == "y")
-                    {
-                        _server.BroadcastMessage($"{_clientName}已准备", _room);
-                        readyPlayers += 1;
-                    }
-                    if (readyPlayers == 3)
-                    {
-                        _server.BroadcastMessage($"游戏开始", _room);
-                        // 处理客户端消息
-                        while (_client.Connected)
-                        {
-                            bytesRead = _stream.Read(buffer, 0, buffer.Length);
-                            if (bytesRead == 0) break;
-
-                            string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error with client {_clientName}: {ex.Message}");
-                }
-                finally
-                {
-                }
-            }
-            while (readyPlayers == 3)
-            {
-                try
-                {
-                    _stream = _client.GetStream();
-                    byte[] buffer = new byte[1024];
-                    int bytesRead;
-
-                    _server.BroadcastMessage($"游戏开始", _room);
-                    // 处理客户端消息
-                    while (_client.Connected)
-                    {
-                        bytesRead = _stream.Read(buffer, 0, buffer.Length);
-                        if (bytesRead == 0) break;
-
-                        string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error with client {_clientName}: {ex.Message}");
-                }
-                finally
-                {
-                }
+                int j = random.Next(i, AllCards.Count);
+                Card temp = AllCards[i];
+                AllCards[i] = AllCards[j];
+                AllCards[j] = temp;
             }
         }
+
+        public List<Card> GetCards(int count)
+        {
+            List<Card> cards = new List<Card>();
+            for (int i = 0; i < count; i++)
+            {
+                cards.Add(AllCards[i]);
+            }
+            AllCards.RemoveRange(0, count);
+            return cards;
+        }
+
+    }
+    public class Player
+    {
+        public string Name { get; set; }
+        public List<Card> Cards { get; set; }
+        public Role role { get; set; }
+        public int Score { get; set; }
+        public int Index { get; set; }
+        public Player(string name)
+        {
+            Name = name;
+            Cards = new List<Card>();
+        }
+    }
+
+    public class Card
+    {
+        public CardValue Value { get; set; }
+        public Suit Suit { get; set; }
+    }
+    public enum Role
+    {
+        Landlord,
+        Pauper
+    }
+
+    public enum Suit
+    {
+        Spade,
+        Heart,
+        Club,
+        Diamond
+    }
+
+    public enum CardValue
+    {
+        Three,
+        Four,
+        Five,
+        Six,
+        Seven,
+        Eight,
+        Nine,
+        Ten,
+        Jack,
+        Queen,
+        King,
+        Ace,
+        Two,
+        SmallJoker,
+        BigJoker
+    }
+
+    public enum CardGroup
+    {
+        Single,
+        Pair,
+        Triple,
+        TripleWithOne,
+        TripleWithTwo,
+        Straight,
+        StraightPair,
+        StraightTriple,
+        StraightTripleWithOne,
+        StraightTripleWithTwo,
+        FourWithTwo,
+        Bomb,
+        Rocket
     }
 }
