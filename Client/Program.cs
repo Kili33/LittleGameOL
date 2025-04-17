@@ -1,5 +1,8 @@
-﻿using System.Net.Sockets;
+﻿using Client;
+using System;
+using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 
 namespace MultiplayerGameClient
 {
@@ -92,11 +95,13 @@ namespace MultiplayerGameClient
     {
         private static void Main(string[] args)
         {
-            Console.Write("Enter your name: ");
-            string name = Console.ReadLine();
+            var login = new Login();
+            login.ShowDialog();
+            //Console.Write("Enter your name: ");
+            //string name = Console.ReadLine();
 
-            GameClient client = new GameClient("127.0.0.1", 8888, name);
-            Console.WriteLine($"Connected to server as {name}.");
+            GameClient client = new GameClient(login.Ip, 8888, login.Name);
+            Console.WriteLine($"Connected to server as {login.Name}.");
 
             client.Start();
         }
