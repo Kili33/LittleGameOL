@@ -1,5 +1,4 @@
-﻿using Server.Games;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Text;
 
 namespace Server
@@ -7,12 +6,12 @@ namespace Server
     public class ClientHandler
     {
         public readonly TcpClient _client;
-        private readonly GameServer _server;
-        private NetworkStream _stream;
+        public readonly GameServer _server;
+        public NetworkStream _stream;
         public string _clientName;
-        private bool _isInRoom = false;
-        private bool _isPlaying = false;
-        private Room _room;
+        public Room _room;
+        public bool _isInRoom = false;
+        public bool _isReady = false;
 
         public ClientHandler(TcpClient client, GameServer server)
         {
@@ -38,7 +37,7 @@ namespace Server
                 JionRoom();
 
                 // 处理客户端消息
-                while (_client.Connected && !_isPlaying)
+                while (_client.Connected)
                 {
                     bytesRead = _stream.Read(buffer, 0, buffer.Length);
                     if (bytesRead == 0) break;
@@ -54,25 +53,9 @@ namespace Server
                                 _room = _server._rooms[roomId];
                                 _room.Clients.Add(this);
                                 _isInRoom = true;
-                                var strMembers = string.Join(",", _room.Clients.Select(c => c._clientName));
-                                _server.BroadcastMessage($"{_clientName}加入房间！当前房间人员：{strMembers}", _room);
-                                SendMessage("输入‘exit’可退出当前房间！\n");
-                                switch (_room.RoomType)
-                                {
-                                    case RoomType.大富翁:
-                                        break;
-
-                                    case RoomType.斗地主:
-                                        if (_room.Clients.Count == 3)
-                                        {
-                                            _server.BroadcastMessage($"人数已满，即将开始游戏！", _room);
-                                            FightLandlord fightLandlord = new FightLandlord();
-                                        }
-                                        break;
-
-                                    default:
-                                        break;
-                                }
+                                RoomHandler roomHandler = new RoomHandler(this);
+                                // 启动房间线程
+                                roomHandler.HandleRoom();
                             }
                             else
                                 SendMessage("请输入正确的房间号！");
@@ -80,37 +63,6 @@ namespace Server
                         else
                             SendMessage("请输入正确的房间号！");
                     }
-                    else
-                    {
-                        if (message.ToLower() == "exit")
-                        {
-                            _isInRoom = false;
-                            _room.Clients.Remove(this);
-                            SendMessage("您已退出房间！");
-                            JionRoom();
-                            _server.BroadcastMessage($"{_clientName}退出此房间！", _room);
-                            break;
-                        }
-                        switch (_room.RoomType)
-                        {
-                            case RoomType.大富翁:
-                                break;
-
-                            case RoomType.斗地主:
-                                break;
-
-                            case RoomType.聊天室:
-                                _server.BroadcastMessage($"{DateTime.Now.ToString("HH:mm:ss")}  {_clientName}:{message}", _room, this);
-                                break;
-
-                            default:
-                                break;
-                        }
-                    }
-                    Console.WriteLine($"{_clientName}: {message}");
-
-                    // 广播消息给所有客户端
-                    //_server.BroadcastMessage($"{_clientName}: {message}", this);
                 }
             }
             catch (Exception ex)
@@ -162,28 +114,6 @@ namespace Server
         public void JionRoom()
         {
             SendMessage("请选择你要加入的房间\n======================================\n");
-            int i = 1;
-            foreach (var room in _server._rooms.Where(o => o.State == RoomState.Waiting))
-            {
-                SendMessage($"||       {i++}.{room.Name} 当前人数：{room.Clients.Count}      ||\n");
-            }
-            SendMessage("======================================\n");
-        }
-        public void ShowTable(Room room)
-        {
-            foreach (var player in room.Clients)
-            {
-                player.SendMessage("======================================\n");
-                player.SendMessage("||                                  ||\n");
-                player.SendMessage("||                                  ||\n");
-                player.SendMessage("||                                  ||\n");
-                player.SendMessage("======================================\n");
-            }
-
-        }
-        public void ShowCards(List<Card> cards)
-        {
-            SendMessage("======================================\n");
             int i = 1;
             foreach (var room in _server._rooms.Where(o => o.State == RoomState.Waiting))
             {

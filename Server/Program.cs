@@ -32,10 +32,6 @@ namespace Server
             while (_isRunning)
             {
                 string command = Console.ReadLine();
-                //if (command?.ToLower() == "exit")
-                //{
-                //    Stop();
-                //}
             }
         }
 

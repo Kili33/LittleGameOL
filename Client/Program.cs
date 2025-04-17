@@ -1,10 +1,9 @@
-﻿using Client;
-using System;
+﻿using System;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 
-namespace MultiplayerGameClient
+namespace Client
 {
     public class GameClient
     {
@@ -97,8 +96,6 @@ namespace MultiplayerGameClient
         {
             var login = new Login();
             login.ShowDialog();
-            //Console.Write("Enter your name: ");
-            //string name = Console.ReadLine();
 
             GameClient client = new GameClient(login.Ip, 8888, login.Name);
             Console.WriteLine($"Connected to server as {login.Name}.");

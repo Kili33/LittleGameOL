@@ -17,6 +17,9 @@
             AllCards.Add(new Card() { Value = CardValue.BigJoker, Suit = Suit.Spade });
         }
 
+        /// <summary>
+        /// 洗牌
+        /// </summary>
         public void Shuffle()
         {
             Random random = new Random();
@@ -29,6 +32,11 @@
             }
         }
 
+        /// <summary>
+        /// 发牌
+        /// </summary>
+        /// <param name="count"></param>
+        /// <returns></returns>
         public List<Card> GetCards(int count)
         {
             List<Card> cards = new List<Card>();
@@ -40,7 +48,30 @@
             return cards;
         }
 
+        public void ShowTable(Room room)
+        {
+            foreach (var player in room.Clients)
+            {
+                player.SendMessage("======================================\n");
+                player.SendMessage("||                                  ||\n");
+                player.SendMessage("||                                  ||\n");
+                player.SendMessage("||                                  ||\n");
+                player.SendMessage("======================================\n");
+            }
+        }
+
+        public void ShowCards(List<Card> cards)
+        {
+        }
+
+        public void GameStart()
+        {
+
+        }
     }
+
+    #region Class
+
     public class Player
     {
         public string Name { get; set; }
@@ -48,6 +79,7 @@
         public Role role { get; set; }
         public int Score { get; set; }
         public int Index { get; set; }
+
         public Player(string name)
         {
             Name = name;
@@ -60,6 +92,7 @@
         public CardValue Value { get; set; }
         public Suit Suit { get; set; }
     }
+
     public enum Role
     {
         Landlord,
@@ -109,4 +142,6 @@
         Bomb,
         Rocket
     }
+
+    #endregion Class
 }
