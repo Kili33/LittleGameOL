@@ -46,8 +46,9 @@ namespace Server
                             var readyCount = roommates.Where(o => o._isReady).Count();
                             if (readyCount == 3)
                             {
-                                _server.BroadcastMessage($"人数已满，即将开始游戏！", _room);
-                                FightLandlord fightLandlord = new FightLandlord();
+                                _server.BroadcastMessage($"所有人已准备，即将开始游戏！", _room);
+                                _room.State = RoomState.Playing;
+                                FightLandlord fightLandlord = new FightLandlord(roommates);
                                 fightLandlord.GameStart();
                             }
                             else
@@ -64,10 +65,9 @@ namespace Server
                             break;
                     }
 
-
                     if (message.ToLower() == "exit")
                     {
-                        Disconnect();
+                        break;
                     }
                 }
             }

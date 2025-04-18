@@ -34,11 +34,11 @@ namespace Server
 
                 // 欢迎消息
                 SendMessage($"Welcome to the server, {_clientName}!\n");
-                JionRoom();
 
                 // 处理客户端消息
                 while (_client.Connected)
                 {
+                    JionRoom();
                     bytesRead = _stream.Read(buffer, 0, buffer.Length);
                     if (bytesRead == 0) break;
 
