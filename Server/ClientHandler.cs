@@ -36,7 +36,7 @@ namespace Server
                 SendMessage($"Welcome to the server, {_clientName}!\n");
 
                 // 处理客户端消息
-                while (_client.Connected)
+                while (_client.Connected && !_isInRoom)
                 {
                     JionRoom();
                     bytesRead = _stream.Read(buffer, 0, buffer.Length);
@@ -95,14 +95,7 @@ namespace Server
             {
                 if (_client.Connected)
                 {
-                    _client.Close();
-                    _stream.Close();
-                    _server.RemoveClient(this);
-                    Console.WriteLine($"{_clientName} has left the server.");
-                    if (_isInRoom)
-                    {
-                        _server.BroadcastMessage($"{_clientName}断开连接！", _room);
-                    }
+                    //Console.WriteLine($"{_clientName} has left the server.");
                 }
             }
             catch (Exception ex)
@@ -115,9 +108,9 @@ namespace Server
         {
             SendMessage("请选择你要加入的房间\n======================================\n");
             int i = 1;
-            foreach (var room in _server._rooms.Where(o => o.State == RoomState.Waiting))
+            foreach (var room in _server._rooms)
             {
-                SendMessage($"||       {i++}.{room.Name} 当前人数：{room.Clients.Count}      ||\n");
+                SendMessage($"||  {i++}.{room.Name} 当前人数：{room.Clients.Count} {room.State}  ||\n");
             }
             SendMessage("======================================\n");
         }

@@ -54,6 +54,7 @@ namespace Server
                             else
                             {
                                 _server.BroadcastMessage($"当前准备人数{readyCount},满3人开始！", _room);
+                                return;
                             }
                             break;
 
@@ -67,6 +68,7 @@ namespace Server
 
                     if (message.ToLower() == "exit")
                     {
+                        Disconnect();
                         break;
                     }
                 }
@@ -77,7 +79,6 @@ namespace Server
             }
             finally
             {
-                Disconnect();
             }
         }
 
@@ -87,6 +88,8 @@ namespace Server
             {
                 if (_client._client.Connected)
                 {
+                    _client._isInRoom = false;
+                    _client._isReady = false;
                     _room.Clients.Remove(_client);
                     _client.SendMessage("您已退出房间！");
                     _server.BroadcastMessage($"{_clientName}退出此房间！", _room);

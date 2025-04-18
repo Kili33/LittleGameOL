@@ -19,5 +19,13 @@ namespace Client
             Name = textBox2.Text;
             this.Close();
         }
+
+        private void textBox2_KeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                button1_Click(null, null);
+            }
+        }
     }
 }

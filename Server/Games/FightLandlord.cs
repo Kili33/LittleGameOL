@@ -1,12 +1,16 @@
-﻿namespace Server.Games
+﻿using System.Text;
+
+namespace Server.Games
 {
     public class FightLandlord
     {
         public List<Card> AllCards { get; set; } = new List<Card>();
         public List<Player> Players { get; set; } = new List<Player>();
+        public Room room { get; set; }
 
         public FightLandlord(List<ClientHandler> clients)
         {
+            room = clients.First()._room;
             foreach (ClientHandler client in clients)
             {
                 Players.Add(new Player(client));
@@ -56,7 +60,7 @@
 
         public void ShowTable(Player player)
         {
-            var ortherPlayers = Players.Where(x => x.Index != player.Index).ToList();
+            var ortherPlayers = Players.Where(x => x != player).ToList();
             player.client.SendMessage(new string('=', 50) + "\n");
             player.client.SendMessage("||                                  ||\n");
             player.client.SendMessage($"|| {ortherPlayers[0].Name + ":" + ortherPlayers[0].Cards.Count}" + "" + $"{ortherPlayers[1].Name + ":" + ortherPlayers[1].Cards.Count} ||\n");
@@ -116,14 +120,57 @@
 
         public void GameStart()
         {
-            var index = new List<int> { 0, 1, 2 };
-            var random = new Random();
-            foreach (var player in Players)
+            try
             {
-                player.Cards = GetCards(17);
-                player.Index = index[random.Next(0, index.Count)];
-                index.Remove(player.Index);
-                ShowTable(player);
+                byte[] buffer = new byte[1024];
+                int bytesRead;
+                var index = new List<int> { 0, 1, 2 };
+                var random = new Random();
+                foreach (var player in Players)
+                {
+                    player.Cards = GetCards(17);
+                    player.Index = index[random.Next(0, index.Count)];
+                    index.Remove(player.Index);
+                    ShowTable(player);
+                }
+
+                #region 叫地主
+
+                Dictionary<int, int> scores = new Dictionary<int, int>();
+                for (int i = 0; i < 3; i++)
+                {
+                    var player = Players.Where(o => o.Index == i).First();
+                    player.client.SendMessage("叫地主：0，1，2");
+                    while (true)
+                    {
+                        bytesRead = player.client._stream.Read(buffer, 0, buffer.Length);
+                        if (bytesRead == 0) break;
+                        string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                        if (message == "0" || message == "1" || message == "2")
+                        {
+                            scores.Add(i, int.Parse(message));
+                            player.client._server.BroadcastMessage(player.Name + $":{message}分", room, player.client);
+                            break;
+                        }
+                        else
+                        {
+                            player.client.SendMessage("请输入正确的数字！");
+                        }
+                    }
+                }
+                var maxScore = scores.Values.Max();
+                var startIndex = scores.Where(x => x.Value == maxScore).Select(x => x.Key).First();
+                var landlord = Players.Where(o => o.Index == startIndex).First();
+                landlord.client._server.BroadcastMessage($"{landlord.Name}成为地主！", room);
+
+                #endregion 叫地主
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error with FightLandlord: {ex.Message}");
+            }
+            finally
+            {
             }
         }
     }
