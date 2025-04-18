@@ -1,13 +1,16 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using Server.Room;
 
 namespace Server
 {
     public class GameServer
     {
         private readonly TcpListener _listener;
-        private readonly List<ClientHandler> _clients = new List<ClientHandler>();
-        public readonly List<Room> _rooms = new List<Room>();
+        private readonly List<User> _allUsers = new List<User>();
+        public readonly List<GameRoom> _rooms = new List<GameRoom>();
+        //public readonly Dictionary<int, GameRoom> _rooms = new Dictionary<int, GameRoom>();
+        public LobbyRoom lobbyRoom;
         private bool _isRunning;
         private static int MaxRoom = 6;
 
@@ -42,11 +45,9 @@ namespace Server
                 try
                 {
                     TcpClient client = _listener.AcceptTcpClient();
-                    ClientHandler handler = new ClientHandler(client, this);
-                    _clients.Add(handler);
-                    Thread clientThread = new Thread(handler.HandleClient);
-                    clientThread.Start();
-                    Console.WriteLine($"New client connected. Total clients: {_clients.Count}");
+                    User user = new User(client, lobbyRoom);
+                    _allUsers.Add(user);
+                    Console.WriteLine($"New client connected. Total clients: {_allUsers.Count}");
                 }
                 catch (Exception ex)
                 {
@@ -56,9 +57,9 @@ namespace Server
             }
         }
 
-        public void BroadcastMessage(string message, Room room, ClientHandler sender = null)
+        public void BroadcastMessage(string message, User sender = null)
         {
-            foreach (var client in room.Clients)
+            foreach (var client in _allUsers)
             {
                 if (client != sender) // 可选：不发送给消息发送者
                 {
@@ -67,26 +68,22 @@ namespace Server
             }
         }
 
-        public void RemoveClient(ClientHandler client)
-        {
-            _clients.Remove(client);
-            Console.WriteLine($"Client disconnected. Total clients: {_clients.Count}");
-        }
-
         public void Stop()
         {
             _isRunning = false;
             _listener.Stop();
-            foreach (var client in _clients)
+            foreach (var user in _allUsers)
             {
-                client.Disconnect();
+                user.CurrentRoom.RemoveUser(user);
+                user.Disconnect();
             }
-            _clients.Clear();
+            _allUsers.Clear();
             Console.WriteLine("Server stopped.");
         }
 
         public void InitRooms()
         {
+            lobbyRoom = new LobbyRoom(this);
             for (int i = 0; i < MaxRoom; i++)
             {
                 var _type = i % (int)RoomType.COUNT;
@@ -97,9 +94,11 @@ namespace Server
 
         public void CreateRoom(string name, RoomType roomType, long id)
         {
-            Room room = new Room(name, roomType, id);
+            GameRoom room = new GameRoom(name, roomType, id);
             _rooms.Add(room);
         }
+
+
     }
 
     internal class Program

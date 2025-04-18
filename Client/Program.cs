@@ -2,6 +2,7 @@
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Client
 {
@@ -11,6 +12,7 @@ namespace Client
         private NetworkStream _stream;
         private bool _isRunning;
         private string _clientName;
+        private byte[] _buffer = new byte[4096];
 
         public GameClient(string serverIp, int port, string clientName)
         {
@@ -45,7 +47,7 @@ namespace Client
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error sending message: {ex.Message}");
-                    Stop();
+                    Disconnect();
                     break;
                 }
             }
@@ -53,17 +55,15 @@ namespace Client
 
         private void ReceiveMessages()
         {
-            byte[] buffer = new byte[1024];
             int bytesRead;
-
             try
             {
                 while (_isRunning)
                 {
-                    bytesRead = _stream.Read(buffer, 0, buffer.Length);
+                    bytesRead = _stream.Read(_buffer, 0, _buffer.Length);
                     if (bytesRead == 0) break;
 
-                    string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    string message = Encoding.UTF8.GetString(_buffer, 0, bytesRead);
                     Console.WriteLine(message);
                 }
             }
@@ -74,18 +74,18 @@ namespace Client
             }
             finally
             {
-                Stop();
+                Disconnect();
             }
         }
 
-        public void Stop()
+        private void Disconnect()
         {
             if (_isRunning)
             {
-                _isRunning = false;
+                Console.WriteLine("Disconnected from server");
                 _stream?.Close();
                 _client?.Close();
-                Console.WriteLine("Disconnected from server.");
+                Environment.Exit(0);
             }
         }
     }

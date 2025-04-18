@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Server.Room;
 
 namespace Server.Games
 {
@@ -6,14 +7,15 @@ namespace Server.Games
     {
         public List<Card> AllCards { get; set; } = new List<Card>();
         public List<Player> Players { get; set; } = new List<Player>();
-        public Room room { get; set; }
+        public GameRoom room { get; set; }
+        private byte[] _buffer = new byte[4096];
 
-        public FightLandlord(List<ClientHandler> clients)
+        public FightLandlord(List<User> users, GameRoom a_room)
         {
-            room = clients.First()._room;
-            foreach (ClientHandler client in clients)
+            room = a_room;
+            foreach (User user in users)
             {
-                Players.Add(new Player(client));
+                Players.Add(new Player(user));
             }
             for (int i = 0; i < 13; i++)
             {
@@ -61,12 +63,12 @@ namespace Server.Games
         public void ShowTable(Player player)
         {
             var ortherPlayers = Players.Where(x => x != player).ToList();
-            player.client.SendMessage(new string('=', 50) + "\n");
-            player.client.SendMessage("||                                  ||\n");
-            player.client.SendMessage($"|| {ortherPlayers[0].Name + ":" + ortherPlayers[0].Cards.Count}" + "" + $"{ortherPlayers[1].Name + ":" + ortherPlayers[1].Cards.Count} ||\n");
-            player.client.SendMessage("||                                  ||\n");
+            player.user.SendMessage(new string('=', 50) + "\n");
+            player.user.SendMessage("||                                  ||\n");
+            player.user.SendMessage($"|| {ortherPlayers[0].Name + ":" + ortherPlayers[0].Cards.Count}" + "" + $"{ortherPlayers[1].Name + ":" + ortherPlayers[1].Cards.Count} ||\n");
+            player.user.SendMessage("||                                  ||\n");
             ShowCards(player);
-            player.client.SendMessage(new string('=', 50) + "\n");
+            player.user.SendMessage(new string('=', 50) + "\n");
         }
 
         public void ShowCards(Player player, List<Card> cards = null)
@@ -110,20 +112,18 @@ namespace Server.Games
             line3 += " | ||";
             line4 += " | ||";
             line5 += " | ||";
-            player.client.SendMessage(line + "\n");
-            player.client.SendMessage(line2 + "\n");
-            player.client.SendMessage(line3 + "\n");
-            player.client.SendMessage(line4 + "\n");
-            player.client.SendMessage(line5 + "\n");
-            player.client.SendMessage(line + "\n");
+            player.user.SendMessage(line + "\n");
+            player.user.SendMessage(line2 + "\n");
+            player.user.SendMessage(line3 + "\n");
+            player.user.SendMessage(line4 + "\n");
+            player.user.SendMessage(line5 + "\n");
+            player.user.SendMessage(line + "\n");
         }
 
         public void GameStart()
         {
             try
             {
-                byte[] buffer = new byte[1024];
-                int bytesRead;
                 var index = new List<int> { 0, 1, 2 };
                 var random = new Random();
                 foreach (var player in Players)
@@ -133,37 +133,9 @@ namespace Server.Games
                     index.Remove(player.Index);
                     ShowTable(player);
                 }
+                CallLandlord();
+                HandleGame();
 
-                #region 叫地主
-
-                Dictionary<int, int> scores = new Dictionary<int, int>();
-                for (int i = 0; i < 3; i++)
-                {
-                    var player = Players.Where(o => o.Index == i).First();
-                    player.client.SendMessage("叫地主：0，1，2");
-                    while (true)
-                    {
-                        bytesRead = player.client._stream.Read(buffer, 0, buffer.Length);
-                        if (bytesRead == 0) break;
-                        string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                        if (message == "0" || message == "1" || message == "2")
-                        {
-                            scores.Add(i, int.Parse(message));
-                            player.client._server.BroadcastMessage(player.Name + $":{message}分", room, player.client);
-                            break;
-                        }
-                        else
-                        {
-                            player.client.SendMessage("请输入正确的数字！");
-                        }
-                    }
-                }
-                var maxScore = scores.Values.Max();
-                var startIndex = scores.Where(x => x.Value == maxScore).Select(x => x.Key).First();
-                var landlord = Players.Where(o => o.Index == startIndex).First();
-                landlord.client._server.BroadcastMessage($"{landlord.Name}成为地主！", room);
-
-                #endregion 叫地主
             }
             catch (Exception ex)
             {
@@ -173,23 +145,78 @@ namespace Server.Games
             {
             }
         }
+        /// <summary>
+        /// 叫地主
+        /// </summary>
+        public void CallLandlord()
+        {
+            #region 叫地主
+
+            Dictionary<int, int> scores = new Dictionary<int, int>();
+            for (int i = 0; i < 3; i++)
+            {
+                var player = Players.Where(o => o.Index == i).First();
+                string message;
+                {
+                    player.user.SendMessage("叫地主：0，1，2");
+                    message = player.user.ReceiveMessage();
+                } while (message != "0" && message != "1" && message != "2") ;
+
+                if (message == "0" || message == "1" || message == "2")
+                {
+                    scores.Add(i, int.Parse(message));
+                    player.user.CurrentRoom.BroadcastMessage(player.Name + $":{message}分", player.user);
+                }
+
+
+            }
+            var maxScore = scores.Values.Max();
+            var startIndex = scores.Where(x => x.Value == maxScore).Select(x => x.Key).First();
+            var landlord = Players.Where(o => o.Index == startIndex).First();
+            landlord.user.CurrentRoom.BroadcastMessage($"{landlord.Name}成为地主！");
+
+            #endregion 叫地主
+        }
+
+        /// <summary>
+        /// 游戏主逻辑
+        /// </summary>
+        public void HandleGame()
+        {
+            while (true)
+            {
+
+                foreach (var player in Players)
+                {
+                    ShowTable(player);
+                    var cards = player.user.ReceiveMessage();
+                    if (player.Cards.Count > 0)
+                    {
+                        player.Cards.RemoveAt(0);
+                    }
+                    ShowTable(player);
+                }
+
+
+            }
+        }
     }
 
     #region Class
 
     public class Player
     {
-        public ClientHandler client;
+        public User user;
         public string Name { get; set; }
         public List<Card> Cards { get; set; }
         public Role role { get; set; }
         public int Score { get; set; }
         public int Index { get; set; }
 
-        public Player(ClientHandler client)
+        public Player(User client)
         {
-            this.client = client;
-            Name = client._clientName;
+            this.user = client;
+            Name = client._userName;
             Cards = new List<Card>();
         }
     }
