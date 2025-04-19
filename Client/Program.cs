@@ -3,6 +3,9 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Client
 {
@@ -30,9 +33,11 @@ namespace Client
             byte[] nameData = Encoding.UTF8.GetBytes(_clientName);
             _stream.Write(nameData, 0, nameData.Length);
 
-            // 启动接收消息的线程
-            Thread receiveThread = new Thread(ReceiveMessages);
-            receiveThread.Start();
+            // 启动接收消息的线程 
+            _ = Task.Run(async () =>
+            {
+                await ReceiveMessages();
+            });
 
             // 主线程处理用户输入
             while (_isRunning)
@@ -53,18 +58,31 @@ namespace Client
             }
         }
 
-        private void ReceiveMessages()
+
+        public async Task handleJson()
         {
-            int bytesRead;
+            var jsonResponse = await ReceiveJsonAsync();
+            if (jsonResponse.HasValue)
+            {
+                var root = jsonResponse.Value;
+                if (root.TryGetProperty("data", out var _data))
+                {
+                    var data = _data.GetString();
+                    Console.WriteLine(data);
+                }
+            }
+        }
+
+        private async Task ReceiveMessages()
+        {
+
             try
             {
                 while (_isRunning)
                 {
-                    bytesRead = _stream.Read(_buffer, 0, _buffer.Length);
-                    if (bytesRead == 0) break;
 
-                    string message = Encoding.UTF8.GetString(_buffer, 0, bytesRead);
-                    Console.WriteLine(message);
+                    await handleJson();
+
                 }
             }
             catch (Exception ex)
@@ -76,6 +94,30 @@ namespace Client
             {
                 Disconnect();
             }
+        }
+
+        public async Task<JsonElement?> ReceiveJsonAsync()
+        {
+            if (_stream == null) throw new InvalidOperationException("Not connected");
+
+            byte[] lengthBuffer = new byte[4];
+            int read = await _stream.ReadAsync(lengthBuffer, 0, 4);
+            if (read < 4)
+                return null;
+
+            int length = BitConverter.ToInt32(lengthBuffer, 0);
+            byte[] buffer = new byte[length];
+            int totalRead = 0;
+
+            while (totalRead < length)
+            {
+                int bytesRead = await _stream.ReadAsync(buffer, totalRead, length - totalRead);
+                if (bytesRead == 0) break;
+                totalRead += bytesRead;
+            }
+
+            string json = Encoding.UTF8.GetString(buffer);
+            return JsonSerializer.Deserialize<JsonElement>(json); // 支持任意 JSON 结构
         }
 
         private void Disconnect()

@@ -1,4 +1,10 @@
-﻿using System.Text;
+﻿using System.IO;
+using System.Net.Sockets;
+using System.Numerics;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.VisualBasic;
 using Server.Room;
 
 namespace Server.Games
@@ -7,8 +13,13 @@ namespace Server.Games
     {
         public List<Card> AllCards { get; set; } = new List<Card>();
         public List<Player> Players { get; set; } = new List<Player>();
+        private Player _currentLandlord;
         public GameRoom room { get; set; }
-        private byte[] _buffer = new byte[4096];
+        public PlayRecord _lastPlay { get; set; }
+
+        private CancellationTokenSource gameLoopCTS;
+        public int CurrentPlayerIndex { get; protected set; }
+        private GamePhase _phase = GamePhase.Prepareing;
 
         public FightLandlord(List<User> users, GameRoom a_room)
         {
@@ -60,15 +71,25 @@ namespace Server.Games
             return cards;
         }
 
-        public void ShowTable(Player player)
+        public async Task ShowTable()
         {
-            var ortherPlayers = Players.Where(x => x != player).ToList();
-            player.user.SendMessage(new string('=', 50) + "\n");
-            player.user.SendMessage("||                                  ||\n");
-            player.user.SendMessage($"|| {ortherPlayers[0].Name + ":" + ortherPlayers[0].Cards.Count}" + "" + $"{ortherPlayers[1].Name + ":" + ortherPlayers[1].Cards.Count} ||\n");
-            player.user.SendMessage("||                                  ||\n");
-            ShowCards(player);
-            player.user.SendMessage(new string('=', 50) + "\n");
+            foreach (Player player in Players)
+            {
+                //var ortherPlayers = Players.Where(x => x != player).ToList();
+                //player.user.SendMessage(new string('=', 50) + "\n");
+                //player.user.SendMessage("||                                  ||\n");
+                //player.user.SendMessage($"|| {ortherPlayers[0].Name + ":" + ortherPlayers[0].Cards.Count}" + "" + $"{ortherPlayers[1].Name + ":" + ortherPlayers[1].Cards.Count} ||\n");
+                //player.user.SendMessage("||                                  ||\n");
+                //ShowCards(player);
+                //player.user.SendMessage(new string('=', 50) + "\n");
+
+
+                foreach (Player player2 in Players)
+                {
+                    await player2.user.SendMessage($"{player.Name}有{player.Cards.Count}张牌");
+                }
+
+            }
         }
 
         public void ShowCards(Player player, List<Card> cards = null)
@@ -120,21 +141,13 @@ namespace Server.Games
             player.user.SendMessage(line + "\n");
         }
 
-        public void GameStart()
+        public async Task GameStart()
         {
             try
             {
-                var index = new List<int> { 0, 1, 2 };
-                var random = new Random();
-                foreach (var player in Players)
-                {
-                    player.Cards = GetCards(17);
-                    player.Index = index[random.Next(0, index.Count)];
-                    index.Remove(player.Index);
-                    ShowTable(player);
-                }
-                CallLandlord();
-                HandleGame();
+                await PrepareGame();
+                await CallLandlord();
+                await HandleGame();
 
             }
             catch (Exception ex)
@@ -145,35 +158,57 @@ namespace Server.Games
             {
             }
         }
+
+        private async Task PrepareGame()
+        {
+            // 初始化牌堆并洗牌
+            var index = new List<int> { 0, 1, 2 };
+            var random = new Random();
+            foreach (var player in Players)
+            {
+                player.Cards = GetCards(17);
+                player.Index = index[random.Next(0, index.Count)];
+                index.Remove(player.Index);
+            }
+            await ShowTable();
+        }
         /// <summary>
         /// 叫地主
         /// </summary>
-        public void CallLandlord()
+        public async Task CallLandlord()
         {
             #region 叫地主
-
+            _phase = GamePhase.Bidding;
             Dictionary<int, int> scores = new Dictionary<int, int>();
             for (int i = 0; i < 3; i++)
             {
                 var player = Players.Where(o => o.Index == i).First();
                 string message;
+                do
                 {
-                    player.user.SendMessage("叫地主：0，1，2");
-                    message = player.user.ReceiveMessage();
-                } while (message != "0" && message != "1" && message != "2") ;
+                    await player.user.SendMessage("叫地主：0，1，2");
+                    message = await player.user.ReceiveMessageAsync();
+                } while (message != "0" && message != "1" && message != "2");
 
                 if (message == "0" || message == "1" || message == "2")
                 {
                     scores.Add(i, int.Parse(message));
-                    player.user.CurrentRoom.BroadcastMessage(player.Name + $":{message}分", player.user);
+                    await room.BroadcastMessage(player.Name + $":{message}分");
                 }
 
 
             }
             var maxScore = scores.Values.Max();
             var startIndex = scores.Where(x => x.Value == maxScore).Select(x => x.Key).First();
-            var landlord = Players.Where(o => o.Index == startIndex).First();
-            landlord.user.CurrentRoom.BroadcastMessage($"{landlord.Name}成为地主！");
+            _currentLandlord = Players.Where(o => o.Index == startIndex).First();
+            await room.BroadcastMessage($"{_currentLandlord.Name}成为地主！");
+            _currentLandlord.role = Role.Landlord;
+            _currentLandlord.Cards.AddRange(GetCards(3));
+            var ortherPlayers = Players.Where(x => x != _currentLandlord).ToList();
+            ortherPlayers.ForEach(ortherPlayers =>
+            {
+                ortherPlayers.role = Role.Pauper;
+            });
 
             #endregion 叫地主
         }
@@ -181,25 +216,135 @@ namespace Server.Games
         /// <summary>
         /// 游戏主逻辑
         /// </summary>
-        public void HandleGame()
+        public async Task HandleGame()
         {
-            while (true)
+            _phase = GamePhase.Playing;
+            int currentPlayerIndex = Players.IndexOf(_currentLandlord);
+            while (!CheckGameEnd())
             {
+                var currentPlayer = Players[currentPlayerIndex];
 
-                foreach (var player in Players)
+                await ShowTable();
+                var cards = await WaitForPlay(currentPlayer, 3);
+                if (ValidatePlay(currentPlayer, cards))
                 {
-                    ShowTable(player);
-                    var cards = player.user.ReceiveMessage();
-                    if (player.Cards.Count > 0)
+                    //UpdateGameState(currentPlayer, playedCards);
+                    if (currentPlayer.Cards.Count > 0)
                     {
-                        player.Cards.RemoveAt(0);
+                        currentPlayer.Cards.RemoveAt(0);
                     }
-                    ShowTable(player);
+                    currentPlayerIndex = (currentPlayerIndex + 1) % Players.Count;
                 }
 
-
+                await Task.Delay(100);
             }
         }
+
+        private async Task<List<Card>> WaitForPlay(Player currentPlayer, double timeout)
+        {
+
+            try
+            {
+                // 发送出牌提示和当前桌面状态
+                await room.BroadcastMessage($"--------到{currentPlayer.Name}出牌了，限制时间{timeout}s------------");
+                while (true)
+                {
+                    // 异步等待输入
+
+                    var rawMessage = await currentPlayer.user.ReceiveMessageAsync(timeout);
+
+                    // 解析指令
+                    if (TryParsePlayCommand(currentPlayer, rawMessage, out var playedCards))
+                    {
+                        return playedCards;
+                    }
+
+                    await currentPlayer.user.SendMessage("Invalid card combination");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                //await BroadcastToAll($"TIMEOUT|{currentPlayer.Id}");
+                return new List<Card>(); // 返回空列表表示跳过
+            }
+            catch (Exception ex) when (ex is IOException || ex is SocketException)
+            {
+                //await HandleDisconnect(currentPlayer);
+                throw;
+            }
+        }
+
+        private bool TryParsePlayCommand(Player player, string rawInput, out List<Card> playedCards)
+        {
+            playedCards = new List<Card>();
+
+            try
+            {
+                // 指令格式示例: 暂定 
+                if (rawInput == "")
+                {
+                    return ValidatePass(player); // 验证是否可以跳过
+                }
+                else
+                {
+                    // playedCards = xxx;
+
+                    // 验证玩家是否拥有这些牌
+                    //if (!player.Cards.ContainsAll(playedCards))
+                    //{
+                    //    throw new InvalidOperationException("Don't own these cards");
+                    //}
+
+                    // 验证牌型有效性
+                    return ValidateCardCombination(playedCards);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        private bool ValidatePass(Player player)
+        {
+            // 如果是首轮出牌不能跳过
+            //if (_lastPlay == null) return false;
+
+            // 如果上家是队友不能跳过（根据斗地主规则调整）
+            //if (player.Role == _lastPlayPlayer.Role) return false;
+
+            return true;
+        }
+        private bool ValidateCardCombination(List<Card> cards)
+        {
+            // 牌型验证逻辑示例：
+            //var type = AnalyzeCardType(cards);
+
+            //// 与上家牌型比较
+            //if (_lastPlay != null)
+            //{
+            //    return type == _lastPlay.Type &&
+            //           cards.Count == _lastPlay.Cards.Count &&
+            //           cards.Max() > _lastPlay.Cards.Max();
+            //}
+
+            return true;
+        }
+        private bool ValidatePlay(Player player, List<Card> playedCards)
+        {
+            // 验证是否拥有这些牌
+            //if (!player.Cards.Contains(playedCards)) return false;
+
+            // 验证牌型有效性
+            //var type = AnalyzeCardType(playedCards);
+            return true;
+        }
+
+        public bool CheckGameEnd()
+        {
+            return false;
+        }
+
+
     }
 
     #region Class
@@ -219,6 +364,11 @@ namespace Server.Games
             Name = client._userName;
             Cards = new List<Card>();
         }
+
+        public void Play(string message)
+        {
+
+        }
     }
 
     public class Card
@@ -227,8 +377,28 @@ namespace Server.Games
         public Suit Suit { get; set; }
     }
 
+    // 辅助类型打牌记录
+    public class PlayRecord
+    {
+        public CardGroup Type { get; }
+        public List<Card> Cards { get; }
+        public User Player { get; }
+
+        public string ToMessage() =>
+            $"{Player._userName}|{(int)Type}|{string.Join(",", Cards.Select(c => c))}";
+    }
+
+    public enum GamePhase
+    {
+        Prepareing,
+        Bidding,
+        Playing,
+        Ended
+    }
+
     public enum Role
     {
+        None,
         Landlord,
         Pauper
     }

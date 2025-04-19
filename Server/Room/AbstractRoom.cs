@@ -17,19 +17,20 @@ namespace Server.Room
         public abstract GameServer _server { get; set; }
 
 
-        public abstract bool AddUser(User user);
-        public abstract void RemoveUser(User user);
+        public abstract Task<bool> AddUser(User user);
+        public abstract Task RemoveUser(User user);
+        public abstract Task<bool> CheckReady(User user);
 
-        public abstract void HandleRoom();
+        public abstract Task HandleRoom();
         //public abstract void BroadcastMessage(string message, User sender);
 
-        public void BroadcastMessage(string message, User sender = null)
+        public virtual async Task BroadcastMessage(string message, User sender = null)
         {
             foreach (var user in Roommates)
             {
                 if (user != sender) // 可选：不发送给消息发送者
                 {
-                    user.SendMessage(message);
+                    await user.SendMessage(message);
                 }
             }
         }

@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 using Server.Room;
 
 namespace Server
@@ -17,6 +18,7 @@ namespace Server
         public GameServer(int port)
         {
             _listener = new TcpListener(IPAddress.Any, port);
+            Start();
         }
 
         public void Start()
@@ -38,15 +40,18 @@ namespace Server
             }
         }
 
-        private void AcceptClients()
+        private async void AcceptClients()
         {
             while (_isRunning)
             {
                 try
                 {
-                    TcpClient client = _listener.AcceptTcpClient();
-                    User user = new User(client, lobbyRoom);
+                    TcpClient client = await _listener.AcceptTcpClientAsync();
+                    User user = new User(client);
                     _allUsers.Add(user);
+                    // 将用户加入大厅房间
+                    _ = lobbyRoom.AddUser(user);
+
                     Console.WriteLine($"New client connected. Total clients: {_allUsers.Count}");
                 }
                 catch (Exception ex)
@@ -94,7 +99,7 @@ namespace Server
 
         public void CreateRoom(string name, RoomType roomType, long id)
         {
-            GameRoom room = new GameRoom(name, roomType, id);
+            GameRoom room = new(name, roomType, id, this);
             _rooms.Add(room);
         }
 
@@ -106,7 +111,6 @@ namespace Server
         private static void Main(string[] args)
         {
             GameServer server = new GameServer(8888);
-            server.Start();
         }
     }
 }
