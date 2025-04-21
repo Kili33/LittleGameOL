@@ -1,11 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using Server.Room;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
-using Server.Room;
 
 namespace Server
 {
@@ -14,14 +10,19 @@ namespace Server
         public readonly TcpClient _client;
         public NetworkStream _stream;
         private byte[] _buffer = new byte[4096];
+
         //public readonly GameServer _server;
         public AbstractRoom CurrentRoom;
+
         public string _userName;
         public bool _isInRoom = false;
         public bool _isReady = false;
+
         // 锁
         private readonly SemaphoreSlim _receiveLock = new SemaphoreSlim(1, 1);
+
         private CancellationTokenSource _cts = new CancellationTokenSource();
+
         public User(TcpClient client)
         {
             _client = client;
@@ -38,6 +39,7 @@ namespace Server
             bool success = await room.AddUser(this);
             return success && await CurrentRoom.CheckReady(this);
         }
+
         public async Task<bool> QuitRoom()
         {
             if (CurrentRoom != null)
@@ -49,13 +51,12 @@ namespace Server
             return false;
         }
 
-
         private async Task InitializeAsync()
         {
             try
             {
                 // 异步接收用户名
-                _userName = await ReceiveMessageAsync();
+                _userName = (await ReceiveMessageAsync()).Message;
                 Console.WriteLine($"{_userName} has joined the server.");
             }
             catch (Exception ex)
@@ -65,22 +66,42 @@ namespace Server
             }
         }
 
-        public async Task<string> ReceiveMessageAsync(double seconds = 0)
+        public async Task<ReceiveResult> ReceiveMessageAsync(double seconds = 0)
         {
             await _receiveLock.WaitAsync();
-            _cts = new CancellationTokenSource(seconds > 0 ? TimeSpan.FromSeconds(seconds) : Timeout.InfiniteTimeSpan);
+            var startTime = DateTime.UtcNow;
+            TimeSpan timeout = seconds > 0 ? TimeSpan.FromSeconds(seconds) : Timeout.InfiniteTimeSpan;
+            _cts = new CancellationTokenSource(timeout);
 
             try
             {
                 int bytesRead = await _stream.ReadAsync(_buffer, 0, _buffer.Length, _cts.Token);
-                return Encoding.UTF8.GetString(_buffer, 0, bytesRead);
+
+                // 计算剩余时间
+                var elapsed = DateTime.UtcNow - startTime;
+                var remainingTime = timeout - elapsed;
+                if (remainingTime < TimeSpan.Zero) remainingTime = TimeSpan.Zero;
+
+                return new ReceiveResult
+                {
+                    Message = Encoding.UTF8.GetString(_buffer, 0, bytesRead),
+                    RemainingTime = remainingTime
+                };
+            }
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+            {
+                var elapsed = DateTime.UtcNow - startTime;
+                return new ReceiveResult
+                {
+                    Message = null,
+                    RemainingTime = timeout - elapsed
+                };
             }
             finally
             {
                 _receiveLock.Release();
             }
         }
-
 
         public string ReceiveMessage()
         {
@@ -100,6 +121,7 @@ namespace Server
         {
             _stream.BeginRead(_buffer, 0, _buffer.Length, ReceiveCallback, null);
         }
+
         private void ReceiveCallback(IAsyncResult ar)
         {
             try
@@ -146,10 +168,14 @@ namespace Server
             }
         }
 
+        public class ReceiveResult
+        {
+            public string Message { get; set; }
+            public TimeSpan RemainingTime { get; set; }
+        }
 
         public void Disconnect()
         {
-
             CurrentRoom.RemoveUser(this);
             _stream?.Close();
             _client?.Close();

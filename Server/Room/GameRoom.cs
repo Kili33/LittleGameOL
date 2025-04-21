@@ -44,14 +44,13 @@ namespace Server.Room
             {
                 _lock.Release();
             }
-
         }
 
         public override async Task<bool> CheckReady(User user)
         {
             await user.SendMessage("输入‘y’准备，输入其他退出当前房间！\n");
             var command = await user.ReceiveMessageAsync();
-            if (command == "y")
+            if (command.Message == "y")
             {
                 user._isReady = true;
                 var readyCount = Roommates.Where(o => o._isReady).Count();
@@ -77,35 +76,24 @@ namespace Server.Room
         // 玩家准备状态变化时调用此方法
         public void OnPlayerReadyChanged()
         {
-
             var readyCount = Roommates.Count(o => o != null && o._isReady);
             if (readyCount == maxUserNum && State != RoomState.Playing)
             {
                 _ = HandleRoom();
             }
-
         }
-
-
 
         public override async Task HandleRoom()
         {
             await _lock.WaitAsync();
             try
             {
-
                 BroadcastMessage($"所有人已准备，即将开始游戏！");
                 State = RoomState.Playing;
                 FightLandlord fightLandlord = new FightLandlord(Roommates, this);
                 await fightLandlord.GameStart();
             }
             finally { _lock.Release(); }
-
         }
-
-
-
     }
-
-
 }

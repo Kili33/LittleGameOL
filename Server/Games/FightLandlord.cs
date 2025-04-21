@@ -55,14 +55,17 @@ namespace Server.Games
         /// </summary>
         /// <param name="count"></param>
         /// <returns></returns>
-        public List<Card> GetCards(int count)
+        public List<Card> GetCards(int count, Player player = null)
         {
             List<Card> cards = new List<Card>();
+            if (player != null)
+                cards = player.Cards;
             for (int i = 0; i < count; i++)
             {
                 cards.Add(AllCards[i]);
             }
             AllCards.RemoveRange(0, count); ;
+            cards = cards.OrderByDescending(o => o.Value).ToList();
             return cards;
         }
 
@@ -78,12 +81,10 @@ namespace Server.Games
                 //ShowCards(player);
                 //player.user.SendMessage(new string('=', 50) + "\n");
 
-
                 foreach (Player player2 in Players)
                 {
                     await player2.user.SendMessage($"{player.Name}有{player.Cards.Count}张牌");
                 }
-
             }
         }
 
@@ -91,11 +92,10 @@ namespace Server.Games
         {
             if (cards == null && player != null)
                 cards = player.Cards;
-            cards = cards.OrderByDescending(o => o.Value).ToList();
             StringBuilder stringBuilder = new StringBuilder();
             List<string> cardShow = new List<string>()
             {
-                "3","4","5","6","7","8","9","0","J","Q","K","A","2","S","B"
+                "3","4","5","6","7","8","9","T","J","Q","K","A","2","S","B"
             };
             List<string> suitShow = new List<string>()
             {
@@ -139,7 +139,6 @@ namespace Server.Games
                 await PrepareGame();
                 await CallLandlord();
                 await HandleGame();
-
             }
             catch (Exception ex)
             {
@@ -163,12 +162,14 @@ namespace Server.Games
             }
             await ShowTable();
         }
+
         /// <summary>
         /// 叫地主
         /// </summary>
         public async Task CallLandlord()
         {
             #region 叫地主
+
             _phase = GamePhase.Bidding;
             Dictionary<int, int> scores = new Dictionary<int, int>();
             for (int i = 0; i < 3; i++)
@@ -178,7 +179,7 @@ namespace Server.Games
                 do
                 {
                     await player.user.SendMessage("叫地主：0，1，2");
-                    message = await player.user.ReceiveMessageAsync();
+                    message = (await player.user.ReceiveMessageAsync()).Message;
                 } while (message != "0" && message != "1" && message != "2");
 
                 if (message == "0" || message == "1" || message == "2")
@@ -186,15 +187,13 @@ namespace Server.Games
                     scores.Add(i, int.Parse(message));
                     await room.BroadcastMessage(player.Name + $":{message}分");
                 }
-
-
             }
             var maxScore = scores.Values.Max();
             var startIndex = scores.Where(x => x.Value == maxScore).Select(x => x.Key).First();
             _currentLandlord = Players.Where(o => o.Index == startIndex).First();
             await room.BroadcastMessage($"{_currentLandlord.Name}成为地主！");
             _currentLandlord.role = Role.Landlord;
-            _currentLandlord.Cards.AddRange(GetCards(3));
+            GetCards(3, _currentLandlord);
             var ortherPlayers = Players.Where(x => x != _currentLandlord).ToList();
             ortherPlayers.ForEach(ortherPlayers =>
             {
@@ -216,16 +215,10 @@ namespace Server.Games
                 var currentPlayer = Players[currentPlayerIndex];
 
                 await ShowTable();
-                var cards = await WaitForPlay(currentPlayer, 3);
-                if (ValidatePlay(currentPlayer, cards))
-                {
-                    //UpdateGameState(currentPlayer, playedCards);
-                    if (currentPlayer.Cards.Count > 0)
-                    {
-                        currentPlayer.Cards.RemoveAt(0);
-                    }
-                    currentPlayerIndex = (currentPlayerIndex + 1) % Players.Count;
-                }
+                var cards = await WaitForPlay(currentPlayer, 30);
+
+                UpdateGameState(currentPlayer, cards);
+                currentPlayerIndex = (currentPlayerIndex + 1) % Players.Count;
 
                 await Task.Delay(100);
             }
@@ -233,11 +226,14 @@ namespace Server.Games
 
         private async Task<List<Card>> WaitForPlay(Player currentPlayer, double timeout)
         {
-
             try
             {
                 // 发送出牌提示和当前桌面状态
-                await room.BroadcastMessage($"--------到{currentPlayer.Name}出牌了，限制时间{timeout}s------------");
+                await room.BroadcastMessage($"--------到{currentPlayer.Name}出牌了，限制时间{timeout}s------------", currentPlayer.user);
+                var canPass = "";
+                if (ValidatePass(currentPlayer))
+                    canPass = ",输入n不出";
+                await currentPlayer.user.SendMessage($"请输入您要出的牌{canPass}");
                 while (true)
                 {
                     // 异步等待输入
@@ -245,18 +241,20 @@ namespace Server.Games
                     var rawMessage = await currentPlayer.user.ReceiveMessageAsync(timeout);
 
                     // 解析指令
-                    if (TryParsePlayCommand(currentPlayer, rawMessage, out var playedCards))
+                    if (TryParsePlayCommand(currentPlayer, rawMessage.Message, out var playedCards))
                     {
                         return playedCards;
                     }
-
-                    await currentPlayer.user.SendMessage("Invalid card combination");
+                    timeout = rawMessage.RemainingTime.TotalSeconds;
+                    await currentPlayer.user.SendMessage($"输入有误，请重新输入！剩余时间{timeout}s");
                 }
             }
             catch (OperationCanceledException)
             {
-                //await BroadcastToAll($"TIMEOUT|{currentPlayer.Id}");
-                return new List<Card>(); // 返回空列表表示跳过
+                if (ValidatePass(currentPlayer))
+                    return new List<Card>(); // 可跳过超时返回空列表
+                else
+                    return new List<Card>() { currentPlayer.Cards.Last() };//不可跳过超时返回最后一张牌
             }
             catch (Exception ex) when (ex is IOException || ex is SocketException)
             {
@@ -271,23 +269,83 @@ namespace Server.Games
 
             try
             {
-                // 指令格式示例: 暂定 
-                if (rawInput == "")
+                // 指令格式示例: 暂定
+                if (rawInput == "n")
                 {
                     return ValidatePass(player); // 验证是否可以跳过
                 }
                 else
                 {
-                    // playedCards = xxx;
+                    foreach (var card in rawInput)
+                    {
+                        switch (card)
+                        {
+                            case '3':
+                                playedCards.Add(new Card() { Value = CardValue.Three });
+                                break;
 
-                    // 验证玩家是否拥有这些牌
-                    //if (!player.Cards.ContainsAll(playedCards))
-                    //{
-                    //    throw new InvalidOperationException("Don't own these cards");
-                    //}
+                            case '4':
+                                playedCards.Add(new Card() { Value = CardValue.Four });
+                                break;
 
-                    // 验证牌型有效性
-                    return ValidateCardCombination(playedCards);
+                            case '5':
+                                playedCards.Add(new Card() { Value = CardValue.Five });
+                                break;
+
+                            case '6':
+                                playedCards.Add(new Card() { Value = CardValue.Six });
+                                break;
+
+                            case '7':
+                                playedCards.Add(new Card() { Value = CardValue.Seven });
+                                break;
+
+                            case '8':
+                                playedCards.Add(new Card() { Value = CardValue.Eight });
+                                break;
+
+                            case '9':
+                                playedCards.Add(new Card() { Value = CardValue.Nine });
+                                break;
+
+                            case 'T':
+                                playedCards.Add(new Card() { Value = CardValue.Ten });
+                                break;
+
+                            case 'J':
+                                playedCards.Add(new Card() { Value = CardValue.Jack });
+                                break;
+
+                            case 'Q':
+                                playedCards.Add(new Card() { Value = CardValue.Queen });
+                                break;
+
+                            case 'K':
+                                playedCards.Add(new Card() { Value = CardValue.King });
+                                break;
+
+                            case 'A':
+                                playedCards.Add(new Card() { Value = CardValue.Ace });
+                                break;
+
+                            case '2':
+                                playedCards.Add(new Card() { Value = CardValue.Two });
+                                break;
+
+                            case 'S':
+                                playedCards.Add(new Card() { Value = CardValue.SmallJoker });
+                                break;
+
+                            case 'B':
+                                playedCards.Add(new Card() { Value = CardValue.BigJoker });
+                                break;
+
+                            default:
+                                break;
+                        }
+                    }
+
+                    return ValidatePlay(player, playedCards);
                 }
             }
             catch
@@ -295,47 +353,83 @@ namespace Server.Games
                 return false;
             }
         }
+
         private bool ValidatePass(Player player)
         {
             // 如果是首轮出牌不能跳过
-            //if (_lastPlay == null) return false;
+            if (_lastPlay == null) return false;
 
-            // 如果上家是队友不能跳过（根据斗地主规则调整）
-            //if (player.Role == _lastPlayPlayer.Role) return false;
+            // 如果上家是自己不能跳过
+            if (player == _lastPlay.Player) return false;
 
             return true;
         }
-        private bool ValidateCardCombination(List<Card> cards)
+
+        private CardGroup AnalyzeCardType(List<Card> cards)
+        {
+            switch (cards.Count)
+            {
+                case 1:
+                    return CardGroup.Single;
+
+                default:
+                    return CardGroup.Wrong;
+            }
+        }
+
+        private bool ValidateCardCombination(List<Card> cards, Player player)
         {
             // 牌型验证逻辑示例：
-            //var type = AnalyzeCardType(cards);
+            var type = AnalyzeCardType(cards);
 
-            //// 与上家牌型比较
-            //if (_lastPlay != null)
-            //{
-            //    return type == _lastPlay.Type &&
-            //           cards.Count == _lastPlay.Cards.Count &&
-            //           cards.Max() > _lastPlay.Cards.Max();
-            //}
+            if (type == CardGroup.Wrong) return false;
+            // 与上家牌型比较,上家是自己则跳过验证
+            if (_lastPlay != null && _lastPlay.Player != player)
+            {
+                return type == _lastPlay.Type &&
+                       cards.Count == _lastPlay.Cards.Count &&
+                       cards.Max(o => o.Value) > _lastPlay.Cards.Max(o => o.Value);
+            }
 
             return true;
         }
+
         private bool ValidatePlay(Player player, List<Card> playedCards)
         {
             // 验证是否拥有这些牌
-            //if (!player.Cards.Contains(playedCards)) return false;
+            foreach (Card card in playedCards)
+            {
+                if (!player.Cards.Contains(card)) return false;
+            }
 
             // 验证牌型有效性
-            //var type = AnalyzeCardType(playedCards);
-            return true;
+            return ValidateCardCombination(playedCards, player);
+        }
+
+        private void UpdateGameState(Player player, List<Card> playedCards)
+        {
+            if (playedCards.Count > 0)
+            {
+                foreach (var card in playedCards)
+                {
+                    player.Cards.Remove(card);
+                }
+            }
+            _lastPlay = new PlayRecord()
+            {
+                Type = AnalyzeCardType(playedCards),
+                Player = player,
+                Cards = playedCards
+            };
         }
 
         public bool CheckGameEnd()
         {
-            return false;
+            if (Players.Where(o => o.Cards.Count() == 0).Count() > 0)
+                return true;
+            else
+                return false;
         }
-
-
     }
 
     #region Class
@@ -358,7 +452,6 @@ namespace Server.Games
 
         public void Play(string message)
         {
-
         }
     }
 
@@ -371,12 +464,12 @@ namespace Server.Games
     // 辅助类型打牌记录
     public class PlayRecord
     {
-        public CardGroup Type { get; }
-        public List<Card> Cards { get; }
-        public User Player { get; }
+        public CardGroup Type { get; set; }
+        public List<Card> Cards { get; set; }
+        public Player Player { get; set; }
 
         public string ToMessage() =>
-            $"{Player._userName}|{(int)Type}|{string.Join(",", Cards.Select(c => c))}";
+            $"{Player.user._userName}|{(int)Type}|{string.Join(",", Cards.Select(c => c))}";
     }
 
     public enum GamePhase
@@ -435,7 +528,8 @@ namespace Server.Games
         StraightTripleWithTwo,
         FourWithTwo,
         Bomb,
-        Rocket
+        Rocket,
+        Wrong
     }
 
     #endregion Class

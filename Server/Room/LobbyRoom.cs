@@ -12,7 +12,6 @@ namespace Server.Room
         public override List<User> Roommates { get; set; } = new List<User>();
         public override GameServer _server { get; set; }
 
-
         public LobbyRoom(GameServer server)
         {
             _server = server;
@@ -29,6 +28,7 @@ namespace Server.Room
             await RequestJoinRoom(user);
             return true;
         }
+
         public override async Task<bool> CheckReady(User user)
         {
             return true;
@@ -41,13 +41,10 @@ namespace Server.Room
 
         public override async Task HandleRoom()
         {
-
         }
 
         public async Task RequestJoinRoom(User user)
         {
-            // TODO 有bug
-
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.AppendLine("请选择你要加入的房间\n======================================");
 
@@ -60,12 +57,10 @@ namespace Server.Room
 
             while (true)
             {
-
-
                 await user.SendMessage(stringBuilder.ToString());
                 var message = await user.ReceiveMessageAsync();
 
-                if (int.TryParse(message, out int roomId))
+                if (int.TryParse(message.Message, out int roomId))
                 {
                     roomId -= 1;
                     if (roomId < _server._rooms.Count)
@@ -81,12 +76,10 @@ namespace Server.Room
                             user.CurrentRoom = this;
                             Roommates.Add(user);
                         }
-
                     }
                     else
                     {
                         await user.SendMessage("请输入正确的房间号！");
-
                     }
                 }
                 else
@@ -95,9 +88,5 @@ namespace Server.Room
                 }
             }
         }
-
-
     }
-
-
 }
