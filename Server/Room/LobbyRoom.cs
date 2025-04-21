@@ -1,6 +1,4 @@
-﻿using System.IO;
-using System.Text;
-using System.Xml;
+﻿using System.Text;
 
 namespace Server.Room
 {
@@ -56,9 +54,9 @@ namespace Server.Room
             int i = 1;
             foreach (var room in _server._rooms)
             {
-                stringBuilder.AppendLine($"||  {i++}.{room.Name} 当前人数：{room.Roommates.Count} {room.State}  ||\n");
+                stringBuilder.AppendLine($"||  {i++}.{room.Name} 当前人数：{room.Roommates.Count} {room.State}  ||");
             }
-            stringBuilder.AppendLine("======================================\n");
+            stringBuilder.AppendLine("======================================");
 
             while (true)
             {

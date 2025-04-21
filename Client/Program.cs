@@ -2,7 +2,6 @@
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -31,7 +30,7 @@ namespace Client
             await _client.ConnectAsync(_serverIp, _port);
             _stream = _client.GetStream();
 
-            // 2. 发送登录消息 
+            // 2. 发送登录消息
             await SendMessageAsync(_clientName);
             Console.WriteLine($"[Info] 已连接到服务器，登录名：{_clientName}");
 
@@ -48,8 +47,6 @@ namespace Client
             Disconnect();
         }
 
-
-
         /// <summary>
         /// 展示内容，后续将优化这里
         /// </summary>
@@ -63,7 +60,6 @@ namespace Client
                 var data = _data.GetString();
                 Console.WriteLine(data);
             }
-
         }
 
         /// <summary>
@@ -77,7 +73,7 @@ namespace Client
                 {
                     var json = await ReceiveJsonAsync(token);
                     if (json == null) break;
-                    // 这里根据实际业务解析 
+                    // 这里根据实际业务解析
                     HandleMessage(json);
                 }
             }
@@ -168,7 +164,20 @@ namespace Client
 
             // 3) 解析
             string json = Encoding.UTF8.GetString(bodyBuf);
-            return JsonSerializer.Deserialize<JsonElement>(json);
+            // 先验证JSON是否有效
+
+            if (JsonDocument.Parse(json, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            }) is JsonDocument doc)
+            {
+                var root = doc.RootElement;
+                // 处理数据...
+                return JsonSerializer.Deserialize<JsonElement>(root);
+            }
+            else
+                return null;
         }
 
         /// <summary>

@@ -1,11 +1,6 @@
-﻿using System.IO;
+﻿using Server.Room;
 using System.Net.Sockets;
-using System.Numerics;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.VisualBasic;
-using Server.Room;
 
 namespace Server.Games
 {
@@ -97,6 +92,7 @@ namespace Server.Games
             if (cards == null && player != null)
                 cards = player.Cards;
             cards = cards.OrderByDescending(o => o.Value).ToList();
+            StringBuilder stringBuilder = new StringBuilder();
             List<string> cardShow = new List<string>()
             {
                 "3","4","5","6","7","8","9","0","J","Q","K","A","2","S","B"
@@ -133,12 +129,7 @@ namespace Server.Games
             line3 += " | ||";
             line4 += " | ||";
             line5 += " | ||";
-            player.user.SendMessage(line + "\n");
-            player.user.SendMessage(line2 + "\n");
-            player.user.SendMessage(line3 + "\n");
-            player.user.SendMessage(line4 + "\n");
-            player.user.SendMessage(line5 + "\n");
-            player.user.SendMessage(line + "\n");
+            stringBuilder.AppendLine(line);
         }
 
         public async Task GameStart()
