@@ -85,13 +85,17 @@ namespace Server.Games
                 {
                     await player2.user.SendMessage($"{player.Name}有{player.Cards.Count}张牌");
                 }
+                ShowCards(player);
             }
         }
 
-        public void ShowCards(Player player, List<Card> cards = null)
+        public async void ShowCards(Player player, List<Card> playCards = null)
         {
-            if (cards == null && player != null)
+            var cards = new List<Card>();
+            if (playCards == null && player != null)
                 cards = player.Cards;
+            else
+                cards = playCards;
             StringBuilder stringBuilder = new StringBuilder();
             List<string> cardShow = new List<string>()
             {
@@ -130,6 +134,15 @@ namespace Server.Games
             line4 += " | ||";
             line5 += " | ||";
             stringBuilder.AppendLine(line);
+            stringBuilder.AppendLine(line2);
+            stringBuilder.AppendLine(line3);
+            stringBuilder.AppendLine(line4);
+            stringBuilder.AppendLine(line5);
+            stringBuilder.AppendLine(line);
+            if (playCards != null)
+                await room.BroadcastMessage(stringBuilder.ToString(), player.user);
+            else
+                await player.user.SendMessage(stringBuilder.ToString());
         }
 
         public async Task GameStart()
@@ -246,7 +259,7 @@ namespace Server.Games
                         return playedCards;
                     }
                     timeout = rawMessage.RemainingTime.TotalSeconds;
-                    await currentPlayer.user.SendMessage($"输入有误，请重新输入！剩余时间{timeout}s");
+                    await currentPlayer.user.SendMessage($"输入有误，请重新输入！剩余时间{(int)timeout}s");
                 }
             }
             catch (OperationCanceledException)
@@ -263,6 +276,13 @@ namespace Server.Games
             }
         }
 
+        /// <summary>
+        /// 分析玩家输入
+        /// </summary>
+        /// <param name="player"></param>
+        /// <param name="rawInput"></param>
+        /// <param name="playedCards"></param>
+        /// <returns></returns>
         private bool TryParsePlayCommand(Player player, string rawInput, out List<Card> playedCards)
         {
             playedCards = new List<Card>();
@@ -354,6 +374,11 @@ namespace Server.Games
             }
         }
 
+        /// <summary>
+        /// 检测玩家能否跳过出牌
+        /// </summary>
+        /// <param name="player"></param>
+        /// <returns></returns>
         private bool ValidatePass(Player player)
         {
             // 如果是首轮出牌不能跳过
@@ -365,18 +390,263 @@ namespace Server.Games
             return true;
         }
 
+        #region 分析牌型
+
         private CardGroup AnalyzeCardType(List<Card> cards)
         {
+            // 按牌值排序
+            cards = cards.OrderBy(c => c.Value).ToList();
+
             switch (cards.Count)
             {
                 case 1:
                     return CardGroup.Single;
 
+                case 2:
+                    if (cards[0].Value == cards[1].Value)
+                        return CardGroup.Pair;
+                    else if (IsRocket(cards))
+                        return CardGroup.Rocket;
+                    else
+                        return CardGroup.Wrong;
+
+                case 3:
+                    if (cards[0].Value == cards[1].Value && cards[0].Value == cards[2].Value)
+                        return CardGroup.Triple;
+                    else
+                        return CardGroup.Wrong;
+
+                case 4:
+                    if (cards[0].Value == cards[1].Value &&
+                        cards[0].Value == cards[2].Value &&
+                        cards[0].Value == cards[3].Value)
+                        return CardGroup.Bomb;
+                    else if (IsTripleWithOne(cards))
+                        return CardGroup.TripleWithOne;
+                    else
+                        return CardGroup.Wrong;
+
+                case 5:
+                    if (IsStraight(cards))
+                        return CardGroup.Straight;
+                    else if (IsTripleWithPair(cards))
+                        return CardGroup.TripleWithPair;
+                    else
+                        return CardGroup.Wrong;
+
                 default:
-                    return CardGroup.Wrong;
+                    if (IsBomb(cards))
+                        return CardGroup.Bomb;
+                    else if (IsStraight(cards))
+                        return CardGroup.Straight;
+                    else if (IsPairStraight(cards))
+                        return CardGroup.PairStraight;
+                    else if (IsAirplane(cards))
+                        return CardGroup.Airplane;
+                    else if (IsAirplaneWithSingle(cards))
+                        return CardGroup.AirplaneWithSingle;
+                    else if (IsAirplaneWithPair(cards))
+                        return CardGroup.AirplaneWithPair;
+                    else if (IsFourWithTwo(cards))
+                        return CardGroup.FourWithTwo;
+                    else
+                        return CardGroup.Wrong;
             }
         }
 
+        // 辅助方法
+        private bool IsRocket(List<Card> cards)
+        {
+            return cards.Count == 2 &&
+                   cards.Any(c => c.Value == CardValue.SmallJoker) &&
+                   cards.Any(c => c.Value == CardValue.BigJoker);
+        }
+
+        private bool IsTripleWithOne(List<Card> cards)
+        {
+            if (cards.Count != 4) return false;
+
+            var groups = cards.GroupBy(c => c.Value);
+            return groups.Any(g => g.Count() == 3) && groups.Count() == 2;
+        }
+
+        private bool IsTripleWithPair(List<Card> cards)
+        {
+            if (cards.Count != 5) return false;
+
+            var groups = cards.GroupBy(c => c.Value);
+            return groups.Any(g => g.Count() == 3) && groups.Any(g => g.Count() == 2);
+        }
+
+        private bool IsStraight(List<Card> cards)
+        {
+            if (cards.Count < 5 || cards.Count > 12) return false;
+
+            // 不能包含2或王
+            if (cards.Any(c => c.Value == CardValue.Two ||
+                               c.Value == CardValue.SmallJoker ||
+                               c.Value == CardValue.BigJoker))
+                return false;
+
+            // 检查是否连续
+            for (int i = 1; i < cards.Count; i++)
+            {
+                if (cards[i].Value - cards[i - 1].Value != 1)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private bool IsPairStraight(List<Card> cards)
+        {
+            if (cards.Count < 6 || cards.Count % 2 != 0) return false;
+
+            var groups = cards.GroupBy(c => c.Value)
+                              .OrderBy(g => g.Key)
+                              .ToList();
+
+            // 每组必须都是对子
+            if (groups.Any(g => g.Count() != 2))
+                return false;
+
+            // 不能包含2或王
+            if (groups.Any(g => g.Key == CardValue.Two ||
+                                g.Key == CardValue.SmallJoker ||
+                                g.Key == CardValue.BigJoker))
+                return false;
+
+            // 检查是否连续
+            for (int i = 1; i < groups.Count; i++)
+            {
+                if (groups[i].Key - groups[i - 1].Key != 1)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private bool IsAirplane(List<Card> cards)
+        {
+            if (cards.Count < 6 || cards.Count % 3 != 0) return false;
+
+            var triples = cards.GroupBy(c => c.Value)
+                               .Where(g => g.Count() == 3)
+                               .OrderBy(g => g.Key)
+                               .ToList();
+
+            // 三张的数量必须匹配
+            if (triples.Count != cards.Count / 3)
+                return false;
+
+            // 不能包含2或王
+            if (triples.Any(g => g.Key == CardValue.Two ||
+                                 g.Key == CardValue.SmallJoker ||
+                                 g.Key == CardValue.BigJoker))
+                return false;
+
+            // 检查是否连续
+            for (int i = 1; i < triples.Count; i++)
+            {
+                if (triples[i].Key - triples[i - 1].Key != 1)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private bool IsAirplaneWithSingle(List<Card> cards)
+        {
+            if (cards.Count < 8 || cards.Count % 4 != 0) return false;
+
+            var groups = cards.GroupBy(c => c.Value).ToList();
+            var triples = groups.Where(g => g.Count() == 3)
+                                .OrderBy(g => g.Key)
+                                .ToList();
+
+            // 三张的数量必须匹配
+            int tripleCount = cards.Count / 4;
+            if (triples.Count != tripleCount)
+                return false;
+
+            // 不能包含2或王
+            if (triples.Any(g => g.Key == CardValue.Two ||
+                                 g.Key == CardValue.SmallJoker ||
+                                 g.Key == CardValue.BigJoker))
+                return false;
+
+            // 检查三张是否连续
+            for (int i = 1; i < triples.Count; i++)
+            {
+                if (triples[i].Key - triples[i - 1].Key != 1)
+                    return false;
+            }
+
+            // 检查带牌是否符合要求
+            int singleCount = tripleCount;
+            var singles = groups.Where(g => g.Count() == 1).ToList();
+            var pairs = groups.Where(g => g.Count() == 2).ToList();
+
+            // 带牌可以是单张或对子拆开
+            return (singles.Count + pairs.Count * 2) >= singleCount;
+        }
+
+        private bool IsAirplaneWithPair(List<Card> cards)
+        {
+            if (cards.Count < 10 || cards.Count % 5 != 0) return false;
+
+            var groups = cards.GroupBy(c => c.Value).ToList();
+            var triples = groups.Where(g => g.Count() == 3)
+                                .OrderBy(g => g.Key)
+                                .ToList();
+
+            // 三张的数量必须匹配
+            int tripleCount = cards.Count / 5;
+            if (triples.Count != tripleCount)
+                return false;
+
+            // 不能包含2或王
+            if (triples.Any(g => g.Key == CardValue.Two ||
+                                 g.Key == CardValue.SmallJoker ||
+                                 g.Key == CardValue.BigJoker))
+                return false;
+
+            // 检查三张是否连续
+            for (int i = 1; i < triples.Count; i++)
+            {
+                if (triples[i].Key - triples[i - 1].Key != 1)
+                    return false;
+            }
+
+            // 检查带牌是否都是对子
+            int pairCount = tripleCount;
+            var pairs = groups.Where(g => g.Count() == 2).ToList();
+
+            return pairs.Count >= pairCount;
+        }
+
+        private bool IsFourWithTwo(List<Card> cards)
+        {
+            if (cards.Count != 6) return false;
+
+            var groups = cards.GroupBy(c => c.Value).ToList();
+            return groups.Any(g => g.Count() == 4) && groups.Count(g => g.Count() == 1) == 2;
+        }
+
+        private bool IsBomb(List<Card> cards)
+        {
+            if (cards.Count != 4) return false;
+            return cards.All(c => c.Value == cards[0].Value);
+        }
+
+        #endregion 分析牌型
+
+        /// <summary>
+        /// 验证牌型是否通过
+        /// </summary>
+        /// <param name="cards"></param>
+        /// <param name="player"></param>
+        /// <returns></returns>
         private bool ValidateCardCombination(List<Card> cards, Player player)
         {
             // 牌型验证逻辑示例：
@@ -384,7 +654,7 @@ namespace Server.Games
 
             if (type == CardGroup.Wrong) return false;
             // 与上家牌型比较,上家是自己则跳过验证
-            if (_lastPlay != null && _lastPlay.Player != player)
+            if (_lastPlay != null && (_lastPlay.Player != player || _lastPlay.Type == CardGroup.Wrong))
             {
                 return type == _lastPlay.Type &&
                        cards.Count == _lastPlay.Cards.Count &&
@@ -394,35 +664,63 @@ namespace Server.Games
             return true;
         }
 
+        /// <summary>
+        /// 验证出牌是否正确
+        /// </summary>
+        /// <param name="player"></param>
+        /// <param name="playedCards"></param>
+        /// <returns></returns>
         private bool ValidatePlay(Player player, List<Card> playedCards)
         {
+            var groups = playedCards.GroupBy(o => o.Value);
             // 验证是否拥有这些牌
-            foreach (Card card in playedCards)
+            foreach (var group in groups)
             {
-                if (!player.Cards.Contains(card)) return false;
+                if (player.Cards.Where(o => o.Value == group.Key).Count() < group.Count()) return false;
             }
 
             // 验证牌型有效性
             return ValidateCardCombination(playedCards, player);
         }
 
-        private void UpdateGameState(Player player, List<Card> playedCards)
+        /// <summary>
+        /// 更新游戏状态
+        /// </summary>
+        /// <param name="player"></param>
+        /// <param name="playedCards"></param>
+        private async void UpdateGameState(Player player, List<Card> playedCards)
         {
             if (playedCards.Count > 0)
             {
                 foreach (var card in playedCards)
                 {
-                    player.Cards.Remove(card);
+                    player.Cards.Remove(player.Cards.Where(o => o.Value == card.Value).First());
+                }
+                await room.BroadcastMessage($"{player.Name} :");
+                ShowCards(player, playedCards);
+
+                _lastPlay = new PlayRecord()
+                {
+                    Type = AnalyzeCardType(playedCards),
+                    Player = player,
+                    Cards = playedCards
+                };
+                if (player.Cards.Count == 0)
+                {
+                    await room.BroadcastMessage($"{player.Name} 获得胜利！");
+                    _phase = GamePhase.Ended;
                 }
             }
-            _lastPlay = new PlayRecord()
+            else
             {
-                Type = AnalyzeCardType(playedCards),
-                Player = player,
-                Cards = playedCards
-            };
+                await room.BroadcastMessage($"{player.Name}：不出");
+            }
         }
 
+        /// <summary>
+        /// 检查游戏是否结束
+        /// </summary>
+        /// <returns></returns>
         public bool CheckGameEnd()
         {
             if (Players.Where(o => o.Cards.Count() == 0).Count() > 0)
@@ -516,20 +814,20 @@ namespace Server.Games
 
     public enum CardGroup
     {
-        Single,
-        Pair,
-        Triple,
-        TripleWithOne,
-        TripleWithTwo,
-        Straight,
-        StraightPair,
-        StraightTriple,
-        StraightTripleWithOne,
-        StraightTripleWithTwo,
-        FourWithTwo,
-        Bomb,
-        Rocket,
-        Wrong
+        Wrong,          // 错误牌型
+        Single,         // 单张
+        Pair,           // 对子
+        Triple,         // 三张
+        TripleWithOne,  // 三带一
+        TripleWithPair, // 三带对
+        Bomb,           // 炸弹
+        Rocket,         // 王炸
+        Straight,       // 顺子
+        PairStraight,   // 连对
+        Airplane,       // 飞机(不带翅膀)
+        AirplaneWithSingle, // 飞机带单张
+        AirplaneWithPair,   // 飞机带对子
+        FourWithTwo,    // 四带二
     }
 
     #endregion Class

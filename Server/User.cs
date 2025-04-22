@@ -88,15 +88,6 @@ namespace Server
                     RemainingTime = remainingTime
                 };
             }
-            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
-            {
-                var elapsed = DateTime.UtcNow - startTime;
-                return new ReceiveResult
-                {
-                    Message = null,
-                    RemainingTime = timeout - elapsed
-                };
-            }
             finally
             {
                 _receiveLock.Release();
