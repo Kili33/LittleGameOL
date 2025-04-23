@@ -183,13 +183,11 @@ namespace Server.Games
         /// </summary>
         public async Task CallLandlord()
         {
-            #region 叫地主
-
             _phase = GamePhase.Bidding;
-            double timeout = 30;
             Dictionary<int, int> scores = new Dictionary<int, int>();
             for (int i = 0; i < 3; i++)
             {
+                double timeout = 30;
                 var player = Players.Where(o => o.Index == i).First();
                 var recMessage = new ReceiveResult();
                 string message;
@@ -219,14 +217,12 @@ namespace Server.Games
             _currentLandlord = Players.Where(o => o.Index == startIndex).First();
             await room.BroadcastMessage($"{_currentLandlord.Name}成为地主！");
             _currentLandlord.role = Role.Landlord;
-            GetCards(3, _currentLandlord);
+            _currentLandlord.Cards = GetCards(3, _currentLandlord);
             var ortherPlayers = Players.Where(x => x != _currentLandlord).ToList();
             ortherPlayers.ForEach(ortherPlayers =>
             {
                 ortherPlayers.role = Role.Pauper;
             });
-
-            #endregion 叫地主
         }
 
         /// <summary>
