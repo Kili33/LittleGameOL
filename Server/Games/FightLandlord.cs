@@ -1,6 +1,7 @@
 ﻿using Server.Room;
 using System.Net.Sockets;
 using System.Text;
+using static Server.User;
 
 namespace Server.Games
 {
@@ -152,6 +153,7 @@ namespace Server.Games
                 await PrepareGame();
                 await CallLandlord();
                 await HandleGame();
+                await Restart();
             }
             catch (Exception ex)
             {
@@ -184,17 +186,28 @@ namespace Server.Games
             #region 叫地主
 
             _phase = GamePhase.Bidding;
+            double timeout = 30;
             Dictionary<int, int> scores = new Dictionary<int, int>();
             for (int i = 0; i < 3; i++)
             {
                 var player = Players.Where(o => o.Index == i).First();
+                var recMessage = new ReceiveResult();
                 string message;
-                do
+                try
                 {
-                    await player.user.SendMessage("叫地主：0，1，2");
-                    message = (await player.user.ReceiveMessageAsync()).Message;
-                } while (message != "0" && message != "1" && message != "2");
-
+                    do
+                    {
+                        await player.user.SendMessage($"叫地主：0，1，2,剩余时间{timeout}s");
+                        await room.BroadcastMessage($"--------到{player.Name}叫地主了，限制时间{timeout}s------------", player.user);
+                        recMessage = await player.user.ReceiveMessageAsync(timeout);
+                        message = recMessage.Message;
+                        timeout = recMessage.RemainingTime.TotalSeconds;
+                    } while (message != "0" && message != "1" && message != "2");
+                }
+                catch (OperationCanceledException)
+                {
+                    message = "0";
+                }
                 if (message == "0" || message == "1" || message == "2")
                 {
                     scores.Add(i, int.Parse(message));
@@ -234,6 +247,14 @@ namespace Server.Games
                 currentPlayerIndex = (currentPlayerIndex + 1) % Players.Count;
 
                 await Task.Delay(100);
+            }
+        }
+
+        public async Task Restart()
+        {
+            foreach (var player in Players)
+            {
+                await room.CheckReady(player.user);
             }
         }
 
@@ -286,7 +307,7 @@ namespace Server.Games
         private bool TryParsePlayCommand(Player player, string rawInput, out List<Card> playedCards)
         {
             playedCards = new List<Card>();
-
+            rawInput = rawInput.ToLower();
             try
             {
                 // 指令格式示例: 暂定
@@ -328,23 +349,23 @@ namespace Server.Games
                                 playedCards.Add(new Card() { Value = CardValue.Nine });
                                 break;
 
-                            case 'T':
+                            case 't':
                                 playedCards.Add(new Card() { Value = CardValue.Ten });
                                 break;
 
-                            case 'J':
+                            case 'j':
                                 playedCards.Add(new Card() { Value = CardValue.Jack });
                                 break;
 
-                            case 'Q':
+                            case 'q':
                                 playedCards.Add(new Card() { Value = CardValue.Queen });
                                 break;
 
-                            case 'K':
+                            case 'k':
                                 playedCards.Add(new Card() { Value = CardValue.King });
                                 break;
 
-                            case 'A':
+                            case 'a':
                                 playedCards.Add(new Card() { Value = CardValue.Ace });
                                 break;
 
@@ -352,11 +373,11 @@ namespace Server.Games
                                 playedCards.Add(new Card() { Value = CardValue.Two });
                                 break;
 
-                            case 'S':
+                            case 's':
                                 playedCards.Add(new Card() { Value = CardValue.SmallJoker });
                                 break;
 
-                            case 'B':
+                            case 'b':
                                 playedCards.Add(new Card() { Value = CardValue.BigJoker });
                                 break;
 
