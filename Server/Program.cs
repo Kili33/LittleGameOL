@@ -1,7 +1,6 @@
-﻿using System.Net;
+﻿using Server.Room;
+using System.Net;
 using System.Net.Sockets;
-using System.Threading.Tasks;
-using Server.Room;
 
 namespace Server
 {
@@ -10,8 +9,10 @@ namespace Server
         private readonly TcpListener _listener;
         private readonly List<User> _allUsers = new List<User>();
         public readonly List<GameRoom> _rooms = new List<GameRoom>();
+
         //public readonly Dictionary<int, GameRoom> _rooms = new Dictionary<int, GameRoom>();
         public LobbyRoom lobbyRoom;
+
         private bool _isRunning;
         private static int MaxRoom = 6;
 
@@ -62,13 +63,13 @@ namespace Server
             }
         }
 
-        public void BroadcastMessage(string message, User sender = null)
+        public async void BroadcastMessage(string message, User sender = null)
         {
             foreach (var client in _allUsers)
             {
                 if (client != sender) // 可选：不发送给消息发送者
                 {
-                    client.SendMessage(message);
+                    await client.SendMessage(message);
                 }
             }
         }
@@ -102,8 +103,6 @@ namespace Server
             GameRoom room = new(name, roomType, id, this);
             _rooms.Add(room);
         }
-
-
     }
 
     internal class Program

@@ -54,7 +54,7 @@ namespace Server.Room
             {
                 user._isReady = true;
                 var readyCount = Roommates.Where(o => o._isReady).Count();
-                await BroadcastMessage($"当前准备人数{readyCount},满3人开始！");
+                await BroadcastMessage($"当前准备人数{readyCount},满{maxUserNum}人开始！");
                 OnPlayerReadyChanged();
                 return true;
             }
@@ -74,7 +74,7 @@ namespace Server.Room
         }
 
         // 玩家准备状态变化时调用此方法
-        public void OnPlayerReadyChanged()
+        public async void OnPlayerReadyChanged()
         {
             var readyCount = Roommates.Count(o => o != null && o._isReady);
             if (readyCount == maxUserNum && State != RoomState.Playing)
@@ -88,7 +88,7 @@ namespace Server.Room
             await _lock.WaitAsync();
             try
             {
-                BroadcastMessage($"所有人已准备，即将开始游戏！");
+                await BroadcastMessage($"GAME START", null, MessageType.Figlet);
                 State = RoomState.Playing;
                 FightLandlord fightLandlord = new FightLandlord(Roommates, this);
                 await fightLandlord.GameStart();

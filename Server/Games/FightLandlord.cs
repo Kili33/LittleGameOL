@@ -1,4 +1,6 @@
 ﻿using Server.Room;
+using Shared.Class;
+using Spectre.Console;
 using System.Net.Sockets;
 using System.Text;
 using static Server.User;
@@ -19,6 +21,7 @@ namespace Server.Games
 
         public FightLandlord(List<User> users, GameRoom a_room)
         {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
             room = a_room;
             foreach (User user in users)
             {
@@ -74,76 +77,84 @@ namespace Server.Games
         {
             foreach (Player player in Players)
             {
-                //var ortherPlayers = Players.Where(x => x != player).ToList();
-                //player.user.SendMessage(new string('=', 50) + "\n");
-                //player.user.SendMessage("||                                  ||\n");
-                //player.user.SendMessage($"|| {ortherPlayers[0].Name + ":" + ortherPlayers[0].Cards.Count}" + "" + $"{ortherPlayers[1].Name + ":" + ortherPlayers[1].Cards.Count} ||\n");
-                //player.user.SendMessage("||                                  ||\n");
-                //ShowCards(player);
-                //player.user.SendMessage(new string('=', 50) + "\n");
+                var tableShowDto = new TableShowDto();
 
-                foreach (Player player2 in Players)
+                var ortherPlayers = Players.Where(x => x != player).ToList();
+                var listPlayers = new List<string>();
+                foreach (Player ortherPlayer in ortherPlayers)
                 {
-                    await player2.user.SendMessage($"{player.Name}有{player.Cards.Count}张牌");
+                    var stringBuilder = new StringBuilder();
+                    stringBuilder.AppendLine(ortherPlayer.Cards.Count.ToString());
+                    stringBuilder.AppendLine(ortherPlayer.Name);
+                    listPlayers.Add(stringBuilder.ToString());
                 }
-                ShowCards(player);
+                tableShowDto.OtherPlayers = listPlayers;
+                if (_lastPlay != null)
+                {
+                    tableShowDto.LastPlayedCards = ShowCards(_lastPlay.Player, _lastPlay.Cards);
+                    tableShowDto.LastPlayerName = _lastPlay.Player.Name;
+                }
+                // 显示玩家牌
+                tableShowDto.SelfCards = ShowCards(player);
+                await player.user.SendMessage(Newtonsoft.Json.JsonConvert.SerializeObject(tableShowDto), MessageType.FightLandlordTableShow);
             }
         }
 
-        public async void ShowCards(Player player, List<Card> playCards = null)
+        public List<string> ShowCards(Player player, List<Card> playCards = null)
         {
             var cards = new List<Card>();
+            var panels = new List<string>();
             if (playCards == null && player != null)
                 cards = player.Cards;
             else
                 cards = playCards;
-            StringBuilder stringBuilder = new StringBuilder();
             List<string> cardShow = new List<string>()
             {
-                "3","4","5","6","7","8","9","T","J","Q","K","A","2","S","B"
+                "3","4","5","6","7","8","9","T","J","Q","K","A","2","J","J"
             };
             List<string> suitShow = new List<string>()
             {
-                "♠","♥","♣","♦"
+                ":spade_suit:",":heart_suit:",":club_suit:",":diamond_suit:"
             };
-            var length = (cards.Count - 1) * 2 + 4;
-            var line = new string('—', length);
-            var line2 = "|| ";
-            var line3 = "|| ";
-            var line4 = "|| ";
-            var line5 = "|| ";
+
             for (int i = 0; i < cards.Count; i++)
             {
+                var stringBuilder = new StringBuilder();
                 var card = (int)cards[i].Value;
-                line2 += "|" + cardShow[(int)cards[i].Value];
-                if (card < 14)
+                if (card < 13)
                 {
                     var suit = (int)cards[i].Suit;
-                    line3 += "|" + suitShow[(int)cards[i].Suit];
-                    line4 += "| ";
-                    line5 += "| ";
+                    // 黑桃|梅花
+                    if (suit % 2 == 0)
+                    {
+                        stringBuilder.AppendLine(cardShow[card]);
+                        stringBuilder.AppendLine(suitShow[suit]);
+                    }
+                    // 红桃|方块
+                    else
+                    {
+                        stringBuilder.AppendLine("[red]" + cardShow[card] + "[/]");
+                        stringBuilder.AppendLine("[red]" + suitShow[suit] + "[/]");
+                    }
+                    stringBuilder.AppendLine("");
                 }
-                else
+                // 小王
+                else if (card == 13)
                 {
-                    line3 += "|" + "J";
-                    line4 += "|" + "O";
-                    line5 += "|" + "K";
+                    stringBuilder.AppendLine(cardShow[card]);
+                    stringBuilder.AppendLine("O");
+                    stringBuilder.AppendLine("K");
                 }
+                // 大王
+                else if (card == 14)
+                {
+                    stringBuilder.AppendLine("[red]" + cardShow[card] + "[/]");
+                    stringBuilder.AppendLine("[red]O[/]");
+                    stringBuilder.AppendLine("[red]K[/]");
+                }
+                panels.Add(stringBuilder.ToString());
             }
-            line2 += " | ||";
-            line3 += " | ||";
-            line4 += " | ||";
-            line5 += " | ||";
-            stringBuilder.AppendLine(line);
-            stringBuilder.AppendLine(line2);
-            stringBuilder.AppendLine(line3);
-            stringBuilder.AppendLine(line4);
-            stringBuilder.AppendLine(line5);
-            stringBuilder.AppendLine(line);
-            if (playCards != null)
-                await room.BroadcastMessage(stringBuilder.ToString(), player.user);
-            else
-                await player.user.SendMessage(stringBuilder.ToString());
+            return panels;
         }
 
         public async Task GameStart()
@@ -196,7 +207,7 @@ namespace Server.Games
                     do
                     {
                         await player.user.SendMessage($"叫地主：0，1，2,剩余时间{timeout}s");
-                        await room.BroadcastMessage($"--------到{player.Name}叫地主了，限制时间{timeout}s------------", player.user);
+                        await room.BroadcastMessage($"到{player.Name}叫地主了，限制时间{timeout}s", player.user, MessageType.Rule);
                         recMessage = await player.user.ReceiveMessageAsync(timeout);
                         message = recMessage.Message;
                         timeout = recMessage.RemainingTime.TotalSeconds;
@@ -219,9 +230,9 @@ namespace Server.Games
             _currentLandlord.role = Role.Landlord;
             _currentLandlord.Cards = GetCards(3, _currentLandlord);
             var ortherPlayers = Players.Where(x => x != _currentLandlord).ToList();
-            ortherPlayers.ForEach(ortherPlayers =>
+            ortherPlayers.ForEach(ortherPlayer =>
             {
-                ortherPlayers.role = Role.Pauper;
+                ortherPlayer.role = Role.Pauper;
             });
         }
 
@@ -259,7 +270,7 @@ namespace Server.Games
             try
             {
                 // 发送出牌提示和当前桌面状态
-                await room.BroadcastMessage($"--------到{currentPlayer.Name}出牌了，限制时间{timeout}s------------", currentPlayer.user);
+                await room.BroadcastMessage($"到{currentPlayer.Name}出牌了，限制时间{timeout}s", currentPlayer.user, MessageType.Rule);
                 var canPass = "";
                 if (ValidatePass(currentPlayer))
                     canPass = ",输入n不出";
@@ -713,8 +724,6 @@ namespace Server.Games
                 {
                     player.Cards.Remove(player.Cards.Where(o => o.Value == card.Value).First());
                 }
-                await room.BroadcastMessage($"{player.Name} :");
-                ShowCards(player, playedCards);
 
                 _lastPlay = new PlayRecord()
                 {
@@ -770,12 +779,6 @@ namespace Server.Games
         }
     }
 
-    public class Card
-    {
-        public CardValue Value { get; set; }
-        public Suit Suit { get; set; }
-    }
-
     // 辅助类型打牌记录
     public class PlayRecord
     {
@@ -785,66 +788,6 @@ namespace Server.Games
 
         public string ToMessage() =>
             $"{Player.user._userName}|{(int)Type}|{string.Join(",", Cards.Select(c => c))}";
-    }
-
-    public enum GamePhase
-    {
-        Prepareing,
-        Bidding,
-        Playing,
-        Ended
-    }
-
-    public enum Role
-    {
-        None,
-        Landlord,
-        Pauper
-    }
-
-    public enum Suit
-    {
-        Spade,
-        Heart,
-        Club,
-        Diamond
-    }
-
-    public enum CardValue
-    {
-        Three,
-        Four,
-        Five,
-        Six,
-        Seven,
-        Eight,
-        Nine,
-        Ten,
-        Jack,
-        Queen,
-        King,
-        Ace,
-        Two,
-        SmallJoker,
-        BigJoker
-    }
-
-    public enum CardGroup
-    {
-        Wrong,          // 错误牌型
-        Single,         // 单张
-        Pair,           // 对子
-        Triple,         // 三张
-        TripleWithOne,  // 三带一
-        TripleWithPair, // 三带对
-        Bomb,           // 炸弹
-        Rocket,         // 王炸
-        Straight,       // 顺子
-        PairStraight,   // 连对
-        Airplane,       // 飞机(不带翅膀)
-        AirplaneWithSingle, // 飞机带单张
-        AirplaneWithPair,   // 飞机带对子
-        FourWithTwo,    // 四带二
     }
 
     #endregion Class

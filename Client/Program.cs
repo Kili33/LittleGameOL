@@ -1,7 +1,11 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Shared.Class;
+using Spectre.Console;
+using System;
+using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -51,15 +55,84 @@ namespace Client
         /// 展示内容，后续将优化这里
         /// </summary>
         /// <param name="json"></param>
-        public void HandleMessage(JsonElement? json)
+        public void HandleMessage(JToken json)
         {
-            if (!json.HasValue) return;
-            var root = json.Value;
-            if (root.TryGetProperty("data", out var _data))
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            if (json == null || json.Type == JTokenType.Null) return;
+
+            if (json["data"] is JToken dataToken && json["type"] is JToken typeToken)
             {
-                var data = _data.GetString();
-                Console.WriteLine(data);
+                string data = dataToken.Value<string>();
+                int messageType = typeToken.Value<int>();
+
+                switch (messageType)
+                {
+                    case 0:
+                        Console.WriteLine(data);
+                        break;
+
+                    case 1:
+                        AnsiConsole.Write(
+                            new FigletText(data)
+                                .LeftJustified()
+                                .Color(Spectre.Console.Color.Red));
+                        break;
+
+                    case 2:
+                        AnsiConsole.Write(new Panel(data));
+                        break;
+
+                    case 3:
+                        AnsiConsole.Write(new Rule(data));
+                        break;
+
+                    case 4:
+                        var table = JsonConvert.DeserializeObject<TableShowDto>(data);
+                        FightLandlordTableShow(table);
+                        break;
+                }
             }
+        }
+
+        private void FightLandlordTableShow(TableShowDto table)
+        {
+            var firstRowShow = new List<Panel>();
+            // 显示其他玩家
+            foreach (var otherPlayer in table.OtherPlayers)
+            {
+                firstRowShow.Add(new Panel(otherPlayer));
+            }
+            if (table.LastPlayerName != null)
+            {
+                var lastPlayCards = new List<Panel>();
+                foreach (var lastPlayCard in table.LastPlayedCards)
+                {
+                    var panel = new Panel(lastPlayCard);
+                    panel.Border = BoxBorder.Rounded;
+                    lastPlayCards.Add(panel);
+                }
+                var playCardsShow = new Columns(lastPlayCards);
+                playCardsShow.Expand = false;
+                playCardsShow.Padding = new Padding(0, 0, 0, 0);
+                var lastPlayCardsShow = new Panel(playCardsShow);
+                lastPlayCardsShow.Header = new PanelHeader(table.LastPlayerName);
+                firstRowShow.Insert(1, lastPlayCardsShow);
+            }
+            var ortherPlayersInline = new Columns(firstRowShow);
+            // 显示玩家牌
+            var cards = new List<Panel>();
+            foreach (var selfCard in table.SelfCards)
+            {
+                var panel = new Panel(selfCard);
+                panel.Border = BoxBorder.Rounded;
+                cards.Add(panel);
+            }
+            var cardsInline = new Columns(cards);
+            cardsInline.Expand = false;
+            cardsInline.Padding = new Padding(0, 0, 0, 0);
+            var tableContent = new Rows(ortherPlayersInline, cardsInline);
+            var tableShow = new Panel(tableContent);
+            AnsiConsole.Write(tableShow);
         }
 
         /// <summary>
@@ -129,7 +202,7 @@ namespace Client
         public async Task SendJsonAsync(object data)
         {
             if (_stream == null) throw new InvalidOperationException("Not connected");
-            string json = JsonSerializer.Serialize(data);
+            string json = JsonConvert.SerializeObject(data);
             await SendRawJsonStringAsync(json);
         }
 
@@ -147,7 +220,7 @@ namespace Client
         /// <summary>
         /// 按长度前缀协议读取一条完整的 JSON 消息
         /// </summary>
-        public async Task<JsonElement?> ReceiveJsonAsync(CancellationToken token)
+        public async Task<JToken> ReceiveJsonAsync(CancellationToken token)
         {
             // 1) 读 4 字节长度前缀
             var lenBuf = new byte[4];
@@ -164,20 +237,17 @@ namespace Client
 
             // 3) 解析
             string json = Encoding.UTF8.GetString(bodyBuf);
-            // 先验证JSON是否有效
 
-            if (JsonDocument.Parse(json, new JsonDocumentOptions
+            try
             {
-                AllowTrailingCommas = true,
-                CommentHandling = JsonCommentHandling.Skip
-            }) is JsonDocument doc)
-            {
-                var root = doc.RootElement;
-                // 处理数据...
-                return JsonSerializer.Deserialize<JsonElement>(root);
+                // 使用 Newtonsoft.Json 解析 JSON
+                return JToken.Parse(json);
             }
-            else
+            catch (JsonReaderException)
+            {
+                // JSON 解析失败
                 return null;
+            }
         }
 
         /// <summary>

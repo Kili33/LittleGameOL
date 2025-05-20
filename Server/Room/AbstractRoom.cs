@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Server.Room
+﻿namespace Server.Room
 {
     public abstract class AbstractRoom
     {
@@ -16,25 +10,28 @@ namespace Server.Room
         public abstract List<User> Roommates { get; set; }
         public abstract GameServer _server { get; set; }
 
-
         public abstract Task<bool> AddUser(User user);
+
         public abstract Task RemoveUser(User user);
+
         public abstract Task<bool> CheckReady(User user);
 
         public abstract Task HandleRoom();
+
         //public abstract void BroadcastMessage(string message, User sender);
 
-        public virtual async Task BroadcastMessage(string message, User sender = null)
+        public virtual async Task BroadcastMessage(string message, User sender = null, MessageType messageType = MessageType.Default)
         {
             foreach (var user in Roommates)
             {
                 if (user != sender) // 可选：不发送给消息发送者
                 {
-                    await user.SendMessage(message);
+                    await user.SendMessage(message, messageType);
                 }
             }
         }
     }
+
     public enum RoomType
     {
         大富翁 = 0,

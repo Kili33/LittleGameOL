@@ -75,7 +75,18 @@ namespace Server
 
             try
             {
-                int bytesRead = await _stream.ReadAsync(_buffer, 0, _buffer.Length, _cts.Token);
+                var readTask = _stream.ReadAsync(_buffer, 0, _buffer.Length, _cts.Token);
+                var delayTask = Task.Delay(timeout, _cts.Token);
+
+                var completedTask = await Task.WhenAny(readTask, delayTask);
+
+                if (completedTask == delayTask)
+                {
+                    _cts.Cancel(); // 确保取消
+                    throw new OperationCanceledException("Receive operation timed out.");
+                }
+
+                int bytesRead = await readTask; // 确保读取完成（或抛出异常）
 
                 // 计算剩余时间
                 var elapsed = DateTime.UtcNow - startTime;
@@ -91,6 +102,7 @@ namespace Server
             finally
             {
                 _receiveLock.Release();
+                _cts?.Dispose();
             }
         }
 
@@ -113,7 +125,7 @@ namespace Server
             _stream.BeginRead(_buffer, 0, _buffer.Length, ReceiveCallback, null);
         }
 
-        private void ReceiveCallback(IAsyncResult ar)
+        private async void ReceiveCallback(IAsyncResult ar)
         {
             try
             {
@@ -121,7 +133,7 @@ namespace Server
                 if (bytesRead > 0)
                 {
                     string message = Encoding.UTF8.GetString(_buffer, 0, bytesRead);
-                    CurrentRoom.BroadcastMessage(message, this);
+                    await CurrentRoom.BroadcastMessage(message, this);
                     ReceiveMessage();
                 }
                 else
@@ -135,17 +147,18 @@ namespace Server
             }
         }
 
-        public async Task SendMessage(string message)
+        public async Task SendMessage(string message, MessageType type = MessageType.Default)
         {
             try
             {
                 var data = new
                 {
-                    type = "message",
+                    type = type,
                     data = message,
                     time = DateTime.Now
                 };
-                string json = JsonSerializer.Serialize(data);
+                var json = JsonSerializer.Serialize(data);
+
                 byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
 
                 // 可加上消息长度前缀，便于对方识别边界
@@ -171,5 +184,23 @@ namespace Server
             _stream?.Close();
             _client?.Close();
         }
+    }
+
+    public enum MessageType
+    {
+        // 普通文本
+        Default,
+
+        // 告示文本
+        Figlet,
+
+        // 方框
+        Panel,
+
+        // 横线
+        Rule,
+
+        // 斗地主牌桌
+        FightLandlordTableShow,
     }
 }
